@@ -1,0 +1,4 @@
+log/*
+cifar10s/*
+cifar10_data/*
+mnist_data/*
