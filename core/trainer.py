@@ -113,6 +113,8 @@ class Trainer(object):
         Load model weights.
         """
         checkpoint = torch.load(path, map_location=torch.device("cpu"))
-        if 'model_state_dict' not in checkpoint:
-            raise RuntimeError('Model weights not found at {}.'.format(path))
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        weights_path = 'model_state_dict'
+        if 'model_state_dict' in checkpoint:
+            checkpoint = checkpoint['model_state_dict']
+            # raise RuntimeError('Model weights not found at {}.'.format(path))
+        self.model.load_state_dict(checkpoint)

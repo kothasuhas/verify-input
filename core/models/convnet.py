@@ -31,7 +31,7 @@ class Unsqueeze(nn.Module):
 #     return model
 
 def convnet():
-    width = 128
+    width = 32
 
     model = nn.Sequential(
         Unsqueeze(),

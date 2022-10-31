@@ -18,10 +18,8 @@ class Flatten(nn.Module):
 def toy():
     model = nn.Sequential(
         Flatten(),
-        nn.Linear(2, 100),
+        (nn.Linear(2, 200)),
         nn.ReLU(),
-        nn.Linear(100, 100),
-        nn.ReLU(),
-        nn.Linear(100, 2)
+        (nn.Linear(200, 3))
     )
     return model
