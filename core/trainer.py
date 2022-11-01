@@ -69,7 +69,7 @@ class Trainer(object):
         Returns:
             Multi-class accuracy.
         """
-        accuracy = (torch.softmax(preds, dim=1).argmax(dim=1) == true).sum().float()/float(true.size(0))
+        accuracy = (torch.softmax(preds, dim=1).argmax(dim=1) == true.argmax(dim=1)).sum().float()/float(true.size(0))
         return accuracy.item()
     
 
@@ -78,7 +78,7 @@ class Trainer(object):
         Standard training.
         """
         self.optimizer.zero_grad()
-        out = self.model(x)
+        out = torch.softmax(self.model(x),dim=1)
         loss = self.criterion(out, y)
         
         preds = out.detach()
