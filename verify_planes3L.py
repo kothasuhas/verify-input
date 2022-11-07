@@ -23,14 +23,15 @@ class args():
         self.lr = 0.1
 
 trainer = trainer.Trainer(args())
-trainer.load_model("log/11-02-15:27:37--TEST/weights-last.pt") # working! 11/2, 200 3
-# trainer.load_model("log/10-12-15:33:41--TEST/weights-last.pt") # 200 3
-# trainer.load_model("log/10-31-21:53:04--TEST/weights-last.pt") # 1000 2
+trainer.load_model("log/11-02-16:50:02--TEST-3L/weights-last.pt") # 200 200 3
 weight1 = trainer.model[1].weight.detach().numpy()
 weight2 = trainer.model[3].weight.detach().numpy()
+weight3 = trainer.model[5].weight.detach().numpy()
 bias1 = trainer.model[1].bias.detach().numpy()
 bias2 = trainer.model[3].bias.detach().numpy()
-HIDDEN_DIM = 200
+bias3 = trainer.model[5].bias.detach().numpy()
+HIDDEN_DIM1 = 200
+HIDDEN_DIM2 = 200
 
 cs = [torch.randn(2) for _ in range(100)]
 
@@ -43,8 +44,10 @@ for c in tqdm(cs):
 
         # Create variables
         input = m.addMVar(shape=2, lb=-2, ub=2, name="input")
-        x1 = m.addMVar(shape=HIDDEN_DIM, lb=-1e30, ub=1e30, name="x1")
-        z1 = m.addMVar(shape=HIDDEN_DIM, lb=-1e30, ub=1e30, name="z1")
+        x1 = m.addMVar(shape=HIDDEN_DIM1, lb=-1e30, ub=1e30, name="x1")
+        z1 = m.addMVar(shape=HIDDEN_DIM1, lb=-1e30, ub=1e30, name="z1")
+        x2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="x1")
+        z2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="z1")
         output = m.addMVar(shape=3, lb=-1e30, ub=1e30, name="output")
 
         m.setObjective(c[0] * input[0] + c[1] * input[1], GRB.MAXIMIZE)
@@ -54,12 +57,17 @@ for c in tqdm(cs):
 
         m.addConstr(((weight1 @ input) + bias1) == x1)
 
-        for i in range(HIDDEN_DIM):
+        for i in range(HIDDEN_DIM1):
             m.addConstr(z1[i] == gp.max_(x1[i], constant=0))
 
-        m.addConstr(((weight2 @ z1) + bias2) == output)
+        m.addConstr(((weight2 @ z1) + bias2) == x2)
 
-        p = 0.995
+        for i in range(HIDDEN_DIM2):
+            m.addConstr(z2[i] == gp.max_(x2[i], constant=0))
+
+        m.addConstr(((weight3 @ z2) + bias3) == output)
+
+        p = 0.90
 
         m.addConstr(output[0] >= output[1])
         # m.addConstr(output[0] >= output[1] + np.log(p / (1 - p)))

@@ -1,3 +1,4 @@
+from operator import truediv
 import os, shutil, json, datetime, time
 
 import core.parser as parser
@@ -37,17 +38,17 @@ utils.seed(1)
 trainer = trainer.Trainer(args)
 logger.log(trainer.model)
 
-using_cross_entropy = False
+using_cross_entropy = True
 
-m1 = torch.distributions.MultivariateNormal(torch.Tensor([-1,0]), torch.Tensor([[0.2, 0], [0, 0.2]]))
-m2 = torch.distributions.MultivariateNormal(torch.Tensor([1,0]), torch.Tensor([[0.2, 0], [0, 0.2]]))
+m1 = torch.distributions.MultivariateNormal(torch.Tensor([-1,0]), torch.Tensor([[0.05, 0], [0, 0.05]]))
+m2 = torch.distributions.MultivariateNormal(torch.Tensor([1,0]), torch.Tensor([[0.05, 0], [0, 0.05]]))
 
-num_indist = 5000
+num_indist = 500
 num_ood = 500
 
 def under1sd(center):
     def helper(point):
-        return (point[0][0] - center[0])**2 + (point[0][1] - center[1])**2 <= 0.2**2
+        return (point[0][0] - center[0])**2 + (point[0][1] - center[1])**2 <= 0.5**2
     return helper
 
 m1_samples = list(filter(under1sd([-1, 0]), [m1.sample().reshape(1, 2) for _ in range(num_indist)]))
