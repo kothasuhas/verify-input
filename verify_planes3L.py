@@ -33,7 +33,8 @@ bias3 = trainer.model[5].bias.detach().numpy()
 HIDDEN_DIM1 = 200
 HIDDEN_DIM2 = 200
 
-cs = [torch.randn(2) for _ in range(100)]
+# cs = [torch.randn(2) for _ in range(1)]
+cs = [[0.2326, 1.6094]]
 
 bs = []
 
@@ -44,10 +45,10 @@ for c in tqdm(cs):
 
         # Create variables
         input = m.addMVar(shape=2, lb=-2, ub=2, name="input")
-        x1 = m.addMVar(shape=HIDDEN_DIM1, lb=-1e30, ub=1e30, name="x1")
+        x0 = m.addMVar(shape=HIDDEN_DIM1, lb=-1e30, ub=1e30, name="x0")
         z1 = m.addMVar(shape=HIDDEN_DIM1, lb=-1e30, ub=1e30, name="z1")
-        x2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="x1")
-        z2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="z1")
+        x1 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="x1")
+        z2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="z2")
         output = m.addMVar(shape=3, lb=-1e30, ub=1e30, name="output")
 
         m.setObjective(c[0] * input[0] + c[1] * input[1], GRB.MAXIMIZE)
@@ -55,15 +56,15 @@ for c in tqdm(cs):
         m.Params.OutputFlag = 0
         m.Params.NonConvex = 2
 
-        m.addConstr(((weight1 @ input) + bias1) == x1)
+        m.addConstr(((weight1 @ input) + bias1) == x0)
 
         for i in range(HIDDEN_DIM1):
-            m.addConstr(z1[i] == gp.max_(x1[i], constant=0))
+            m.addConstr(z1[i] == gp.max_(x0[i], constant=0))
 
-        m.addConstr(((weight2 @ z1) + bias2) == x2)
+        m.addConstr(((weight2 @ z1) + bias2) == x1)
 
         for i in range(HIDDEN_DIM2):
-            m.addConstr(z2[i] == gp.max_(x2[i], constant=0))
+            m.addConstr(z2[i] == gp.max_(x1[i], constant=0))
 
         m.addConstr(((weight3 @ z2) + bias3) == output)
 
@@ -113,5 +114,7 @@ def abline(slope, intercept):
 
 for c, b in list(zip(cs, bs)):
     abline(-c[0] / c[1], b / c[1])
+
+print(cs, bs)
 
 plt.show()
