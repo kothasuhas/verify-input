@@ -50,14 +50,11 @@ for c in cs:
     print(thresh)
 
     best_so_far = 10
-    for _ in range (10000):
+    for _ in tqdm(range (10000)):
         l = loss(x, thresh, c)
-        print(l)
         l.backward()
         x.data -= 0.0001 * x.grad.data
         x.grad.data.zero_()
-        print(x)
-        print(trainer.model(x))
         y = trainer.model(x)
         if (y[0][0] - thresh >= y[0][2]):
             best_so_far = min(best_so_far, torch.dot(c, x[0]))

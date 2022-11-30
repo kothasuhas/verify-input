@@ -51,10 +51,11 @@ for c in tqdm(cs):
         z2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="z2")
         output = m.addMVar(shape=3, lb=-1e30, ub=1e30, name="output")
 
+        m.setObjective(x1[0], GRB.MAXIMIZE)
         m.setObjective(c[0] * input[0] + c[1] * input[1], GRB.MINIMIZE)
 
-        m.Params.OutputFlag = 0
-        m.Params.NonConvex = 2
+        # m.Params.OutputFlag = 0
+        # m.Params.NonConvex = 2
 
         m.addConstr(((weight1 @ input) + bias1) == x0)
 
@@ -63,12 +64,17 @@ for c in tqdm(cs):
 
         m.addConstr(((weight2 @ z1) + bias2) == x1)
 
-        for i in range(HIDDEN_DIM2):
+        lb = -0.1717823795781237
+        ub = 0.2293072840558141
+        m.addConstr(z2[0] >= 0)
+        m.addConstr(z2[0] >= x1[0])
+        m.addConstr(z2[0] <= x1[0] * ub/(ub - lb) - (lb * ub) / (ub - lb))
+        for i in range(1, HIDDEN_DIM2):
             m.addConstr(z2[i] == gp.max_(x1[i], constant=0))
 
         m.addConstr(((weight3 @ z2) + bias3) == output)
 
-        p = 0.90
+        p = 0.9
         thresh = np.log(p / (1 - p))
 
         # m.addConstr(output[0] >= output[1])
@@ -87,35 +93,35 @@ for c in tqdm(cs):
     except gp.GurobiError as e:
         print('Error code ' + str(e.errno) + ": " + str(e))
 
-XX, YY = np.meshgrid(np.linspace(-2, 2, 100), np.linspace(-2, 2, 100))
-X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
-y0 = trainer.model(X0)
-id = torch.max(y0[:,0], y0[:,1])
-ZZ = (y0[:,2] - id).resize(100,100).data.numpy()
-bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
+# XX, YY = np.meshgrid(np.linspace(-2, 2, 100), np.linspace(-2, 2, 100))
+# X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
+# y0 = trainer.model(X0)
+# id = torch.max(y0[:,0], y0[:,1])
+# ZZ = (y0[:,2] - id).resize(100,100).data.numpy()
+# bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
 
-fig, ax = plt.subplots(figsize=(8,8))
-ax.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
-ax.axis("equal")
+# fig, ax = plt.subplots(figsize=(8,8))
+# ax.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
+# ax.axis("equal")
 
-plt.xlim(-2, 2)
-plt.ylim(-2, 2)
+# plt.xlim(-2, 2)
+# plt.ylim(-2, 2)
 
-t = np.linspace(0, 2 * math.pi, 100)
-radius = 0.5
-plt.plot(-1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
-plt.plot( 1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
+# t = np.linspace(0, 2 * math.pi, 100)
+# radius = 0.5
+# plt.plot(-1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
+# plt.plot( 1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
 
-def abline(slope, intercept):
-    """Plot a line from slope and intercept"""
-    axes = plt.gca()
-    x_vals = np.array(axes.get_xlim())
-    y_vals = intercept + slope * x_vals
-    plt.plot(x_vals, y_vals, '--', color="black")
+# def abline(slope, intercept):
+#     """Plot a line from slope and intercept"""
+#     axes = plt.gca()
+#     x_vals = np.array(axes.get_xlim())
+#     y_vals = intercept + slope * x_vals
+#     plt.plot(x_vals, y_vals, '--', color="black")
 
-for c, b in list(zip(cs, bs)):
-    abline(-c[0] / c[1], b / c[1])
+# for c, b in list(zip(cs, bs)):
+#     abline(-c[0] / c[1], b / c[1])
 
 print(cs, bs)
 
-plt.show()
+# plt.show()
