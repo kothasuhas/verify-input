@@ -53,10 +53,7 @@ def initialize(model, h, L):
     weights[L] = torch.matmul(h.transpose(0, 1), weights[L])
     biases[L]  = torch.matmul(h.transpose(0, 1), biases[L])
 
-    A, D = get_diagonals(weights, lbs, ubs, gamma, alphas, L)
-    bias_lbs = get_bias_lbs(A, lbs, ubs, L)
-
-    return gamma, alphas, weights, biases, lbs, ubs, A, D, bias_lbs
+    return gamma, alphas, weights, biases, lbs, ubs
 
 def get_diagonals(weights, lbs, ubs, gamma, alphas, L):
     A = [None for _ in range(L)]
@@ -97,12 +94,14 @@ def get_bias_lbs(A, lbs, ubs, L):
 
     return bias_lbs
 
-def Omega(end, start, weights, biases, D):
+def Omega(end, start, weights, biases, gamma, D, L):
     assert end >= start
     if end == start:
         return torch.eye(biases[start].size(0))
+    elif end == L:
+        return gamma * weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start, weights, biases, gamma, D, L))
     else:
-        return weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start, weights, biases, D))
+        return weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start, weights, biases, gamma, D, L))
 
 L = 3
 
@@ -110,7 +109,7 @@ h = torch.zeros(3, 1)
 h[0][0] = -1
 h[2][0] = 1
 
-gamma, alphas, weights, biases, lbs, ubs, A, D, bias_lbs = initialize(trainer.model, h, L)
+gamma, alphas, weights, biases, lbs, ubs = initialize(trainer.model, h, L)
 
 # c = torch.zeros(200)
 # c[0] = 1
@@ -125,55 +124,27 @@ def get_obj(gamma, alphas, lbs, ubs, layeri=0):
     def weights_scaled(i):
         return (weights[i] if i < L else gamma * weights[L])
 
-    a_crown = (Omega(L, layeri + 1, weights, biases, D).matmul(weights[layeri + 1]))
-    c_crown = sum([Omega(L, i, weights, biases, D).matmul(biases_scaled(i)) for i in range(layeri + 1, L + 1)]) \
-            + sum([Omega(L, i, weights, biases, D).matmul(weights_scaled(i)).matmul(bias_lbs[i - 1]) for i in range(layeri + 2, L + 1)])
+    a_crown = (Omega(L, layeri + 1, weights, biases, gamma, D, L).matmul(weights[layeri + 1]))
+    c_crown = sum([Omega(L, i, weights, biases, gamma, D, L).matmul(biases_scaled(i)) for i in range(layeri + 1, L + 1)]) \
+            + sum([Omega(L, i, weights, biases, gamma, D, L).matmul(weights_scaled(i)).matmul(bias_lbs[i - 1]) for i in range(layeri + 2, L + 1)])
 
     p = 0.9
-    # thresh = np.log(p / (1 - p))
-    thresh = 2.19722
+    thresh = np.log(p / (1 - p))
     x_0 = (ubs[layeri] + lbs[layeri]) / 2.0
     eps = 2.0 if layeri == 0 else 4.0
 
-    # print(c, a_crown, eps, c_crown)
+    return -torch.norm(c + a_crown, p=1) * eps + (c + a_crown).matmul(x_0) + c_crown + gamma * thresh 
 
-    return -torch.norm(c + a_crown, p=1) * eps + a_crown.matmul(x_0) + c_crown + gamma * thresh 
+optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.001, momentum=0.9)
 
-for _ in range(20):
-    loss = get_obj(gamma, alphas, lbs, ubs, layeri=0)
-    print(loss, gamma, alphas[2][0])
+for _ in range(200):
+    optim.zero_grad(set_to_none=True)
+    loss = -get_obj(gamma, alphas, lbs, ubs, layeri=0)
+    print(-loss.item(), gamma.item(), alphas[2][0].item())
     loss.backward()
+    optim.step()
 
     with torch.no_grad():
-        lr = 0.001
-        gamma -= gamma.grad * lr
-        if alphas[1].grad is not None: alphas[1] -= alphas[1].grad * lr
-        if alphas[2].grad is not None: alphas[2] -= alphas[2].grad * lr
-
         gamma.data = torch.clamp(gamma.data, min=0)
         alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
         alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
-        
-        gamma.grad.zero_()
-        if alphas[1].grad is not None: alphas[1].grad.zero_()
-        if alphas[2].grad is not None: alphas[2].grad.zero_()
-        
-        # # alphas[1] = alphas[1].clamp(min=0, max=1)
-        
-
-# import torch
-# from torch import nn
-
-# x = torch.rand(2)
-# x.requires_grad = True
-# lin = nn.Linear(2, 1)
-# optimizer = torch.optim.Adam([x], lr=0.1)
-# for i in range(100):
-#     print(x)
-#     optimizer.zero_grad()
-#     y = lin(x)
-#     y.backward()
-#     optimizer.step()
-
-#     with torch.no_grad():
-#         x = nn.Softmax(dim=-1)(x) * 5

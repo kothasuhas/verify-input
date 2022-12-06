@@ -51,7 +51,7 @@ for c in tqdm(cs):
         z2 = m.addMVar(shape=HIDDEN_DIM2, lb=-1e30, ub=1e30, name="z2")
         output = m.addMVar(shape=3, lb=-1e30, ub=1e30, name="output")
 
-        m.setObjective(c[0] * input[0] + c[1] * input[1], GRB.MINIMIZE)
+        m.setObjective(c[0] * input[0] + c[1] * input[1], GRB.MAXIMIZE)
 
         m.Params.OutputFlag = 0
         m.Params.NonConvex = 2
