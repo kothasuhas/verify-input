@@ -23,16 +23,19 @@ class args():
         self.lr = 0.1
 
 trainer = trainer.Trainer(args())
-trainer.load_model("log/11-02-15:27:37--TEST/weights-last.pt") # working! 11/2, 200 3
-# trainer.load_model("log/10-12-15:33:41--TEST/weights-last.pt") # 200 3
-# trainer.load_model("log/10-31-21:53:04--TEST/weights-last.pt") # 1000 2
+# trainer.load_model("log/11-02-15:27:37--TEST/weights-last.pt") # working! 11/2, 200 3
+# trainer.load_model("log/10-12-15:23:27--TEST/weights-last.pt") # 200 3
+trainer.load_model("log/10-31-21:53:04--TEST/weights-last.pt") # 1000 2
 weight1 = trainer.model[1].weight.detach().numpy()
 weight2 = trainer.model[3].weight.detach().numpy()
 bias1 = trainer.model[1].bias.detach().numpy()
 bias2 = trainer.model[3].bias.detach().numpy()
 HIDDEN_DIM = 200
 
-cs = [torch.randn(2) for _ in range(100)]
+print(trainer.model)
+
+# cs = [torch.randn(2) for _ in range(100)]
+cs = []
 
 bs = []
 
@@ -80,8 +83,8 @@ for c in tqdm(cs):
 XX, YY = np.meshgrid(np.linspace(-2, 2, 100), np.linspace(-2, 2, 100))
 X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
 y0 = trainer.model(X0)
-id = torch.max(y0[:,0], y0[:,1])
-ZZ = (y0[:,2] - id).resize(100,100).data.numpy()
+id = y0[:,0]
+ZZ = -torch.abs((y0[:,1] - id).resize(100,100)).data.numpy()
 bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
 
 fig, ax = plt.subplots(figsize=(8,8))
