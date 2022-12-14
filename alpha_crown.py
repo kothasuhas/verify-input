@@ -102,15 +102,6 @@ def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
 
     return a_crown, c_crown
 
-def get_obj_all(weights, biases, gamma, alphas, lbs, ubs, c, thresh, L):
-    a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L)
-    a_crown += c
-
-    x_0 = (ubs[0] + lbs[0]) / 2.0
-    eps = (ubs[0] - lbs[0]) / 2.0
-
-    return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
-
 def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, neuron, direction):
     a_crown_full, c_crown_full = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L)
 
