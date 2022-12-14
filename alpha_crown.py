@@ -32,12 +32,10 @@ def initialize(model, h, L):
 
     for i in range(1, L):
         alphas.append(torch.full((weights[i].size(0),), 0.5))
+        alphas[-1].requires_grad = True
 
     gamma = torch.full((1,), 0.01)
-
     gamma.requires_grad = True
-    alphas[1].requires_grad = True
-    alphas[2].requires_grad = True
 
     return gamma, alphas, weights, biases
 
@@ -55,13 +53,15 @@ def get_diagonals(weights, lbs, ubs, gamma, alphas, L):
 
         for j in range(D[i].size(0)):
             if lbs[i][j] >= 0:   # ReLU always on
-                D[i][j][j] = 1
+                diagonal_entry = 1
             elif ubs[i][j] <= 0: # ReLU always off
-                D[i][j][j] = 0
+                diagonal_entry = 0
             elif A[i][0][j] >= 0:   # use ReLU lower bound
-                D[i][j][j] = alphas[i][j]
-            elif A[i][0][j] < 0:    # use ReLU upper bound
-                D[i][j][j] = ubs[i][j] / (ubs[i][j] - lbs[i][j])
+                diagonal_entry = alphas[i][j]
+            else:    # use ReLU upper bound
+                assert A[i][0][j] < 0
+                diagonal_entry = ubs[i][j] / (ubs[i][j] - lbs[i][j])
+            D[i][j][j] = diagonal_entry
 
     return A, D
 
