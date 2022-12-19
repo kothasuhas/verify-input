@@ -103,8 +103,6 @@ def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
     return a_crown, c_crown
 
 def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, neuron, direction):
-    a_crown_full, c_crown_full = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L)
-
     L1 = layeri
     weights1 = weights[:layeri+1]
     biases1  = biases[:layeri+1]
@@ -112,14 +110,24 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
     lbs1 = lbs[:layeri]
     alphas1 = alphas[:layeri]
 
-    c = torch.zeros(weights1[-1].size(0))
+    L2 = L - layeri + 1
+    weights2 = [None, torch.eye(weights1[-1].size(0))] + weights[layeri+1:]
+    biases2  = [None, torch.zeros(weights1[-1].size(0))] + biases[layeri+1:]
+    ubs2 = [ubs[layeri]] + ubs[layeri:]
+    lbs2 = [lbs[layeri]] + lbs[layeri:]
+    alphas2 = [None] + alphas[layeri:]
+
+    c = torch.zeros(weights2[1].size(1))
     c[neuron] = (1 if direction == "lbs" else -1)
-    weights1[-1] = c.unsqueeze(0).matmul(weights1[-1])
-    biases1[-1]  = c.unsqueeze(0).matmul(biases1[-1])
+
+    a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
+
+    weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
+    biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
     
-    a_crown_partial, c_crown_partial = get_crown_bounds(weights1, biases1, 1.0, alphas1, lbs1, ubs1, L1)
+    a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, 1.0, alphas1, lbs1, ubs1, L1)
     
-    a_crown = a_crown_partial + a_crown_full
+    a_crown = a_crown_full
     c_crown = c_crown_partial + c_crown_full
 
     x_0 = (ubs[0] + lbs[0]) / 2.0
@@ -191,10 +199,10 @@ for _ in range(10):
         m.addConstr(((weight1 @ input) + bias1) == x0)
 
         for i in range(200):
-            assert bounds["lbs"][1][i] <= bounds["ubs"][1][i]
-            if bounds["ubs"][1][i] <= 0:
+            assert lbs1[i] <= ubs1[i]
+            if ubs1[i] <= 0:
                 m.addConstr(z1[i] == 0)
-            elif bounds["lbs"][1][i] >= 0:
+            elif lbs1[i] >= 0:
                 m.addConstr(z1[i] == x0[i])
             else:
                 m.addConstr(z1[i] >= 0)
@@ -204,10 +212,10 @@ for _ in range(10):
         m.addConstr(((weight2 @ z1) + bias2) == x1)
 
         for i in range(200):
-            assert bounds["lbs"][2][i] <= bounds["ubs"][2][i]
-            if bounds["ubs"][2][i] <= 0:
+            assert lbs2[i] <= ubs2[i]
+            if ubs2[i] <= 0:
                 m.addConstr(z2[i] == 0)
-            elif bounds["lbs"][2][i] >= 0:
+            elif lbs2[i] >= 0:
                 m.addConstr(z2[i] == x1[i])
             else:
                 m.addConstr(z2[i] >= 0)
