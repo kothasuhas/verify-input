@@ -39,7 +39,7 @@ def initialize(model, h, L):
 
     return gamma, alphas, weights, biases
 
-def get_diagonals(weights, lbs, ubs, gamma, alphas, L):
+def get_diagonals(weights, lbs, ubs, alphas, L):
     A = [None for _ in range(L)]
     D = [None for _ in range(L)]
 
@@ -80,27 +80,23 @@ def get_bias_lbs(A, lbs, ubs, L):
 
     return bias_lbs
 
-def init_Omega(weights, biases, gamma, D, L):
+def init_Omega(weights, biases, D, L):
     def Omega(end, start):
         assert end >= start
         if end == start: return torch.eye(biases[start].size(0))
-        return (gamma if end == L else 1) * weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start))
+        return weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start))
     return Omega
 
 def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
-    A, D = get_diagonals(weights, lbs, ubs, gamma, alphas, L)
+    A, D = get_diagonals(weights, lbs, ubs, alphas, L)
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)
-
-    def biases_scaled(i):  return (biases[i]  if i < L else gamma * biases[L])
-    def weights_scaled(i): return (weights[i] if i < L else gamma * weights[L])
-
-    Omega = init_Omega(weights, biases, gamma, D, L)
+    Omega = init_Omega(weights, biases, D, L)
 
     a_crown = Omega(L, 1).matmul(weights[1])
-    c_crown = sum([Omega(L, i).matmul(biases_scaled(i)) for i in range(1, L + 1)]) \
-            + sum([Omega(L, i).matmul(weights_scaled(i)).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
+    c_crown = sum([Omega(L, i).matmul(biases[i]) for i in range(1, L + 1)]) \
+            + sum([Omega(L, i).matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
 
-    return a_crown, c_crown
+    return gamma * a_crown, gamma * c_crown
 
 def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, neuron, direction):
     L1 = layeri
