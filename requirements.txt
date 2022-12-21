@@ -11,3 +11,6 @@ six==1.16.0
 torch==1.13.0
 tqdm==4.64.1
 typing-extensions==4.4.0
+scipy==1.9.3
+torchvision==0.14.1
+matplotlib==3.6.2
