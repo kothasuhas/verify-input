@@ -1,3 +1,5 @@
+import itertools
+
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
@@ -6,7 +8,8 @@ from tqdm import tqdm
 
 import core.trainer as trainer
 
-from tqdm import tqdm as tqdm
+
+from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model
 
 class args():
     def __init__(self):
@@ -15,7 +18,7 @@ class args():
         self.lr = 0.1
 
 trainer = trainer.Trainer(args())
-trainer.load_model("log/11-02-16:50:02--TEST-3L/weights-last.pt") # 200 200 3
+trainer.load_model("test-weights.pt") # 200 200 3
 trainer.model.eval()
 
 def initialize_weights(model, h, L):
@@ -46,8 +49,8 @@ def initialize_params(L, weights):
 def get_diagonals(weights, lbs, ubs, alphas, L):
     A = [None for _ in range(L)]
     D = [None for _ in range(L)]
-
-    for i in range(L-1, 0, -1):
+    assert len(weights) == L + 1
+    for i in range(L-1, 0, -1):  # 1, ..., L-1  -> entry L not used
         if i == L-1:
             A[i] = weights[L]
         else:
@@ -135,109 +138,63 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
 
     return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
 
+h = torch.Tensor([[-1], [0], [1]])
 p = 0.9
 thresh = np.log(p / (1 - p))
 
-weights, biases = initialize_weights(trainer.model, torch.Tensor([[-1], [0], [1]]), 3)
+weights, biases = initialize_weights(trainer.model, h, 3)
 
 lbs = [torch.full((2,), -2.0)]
 ubs = [torch.full((2,), 2.0)]
 for i in range(1, 3):
     lbs.append(torch.full((weights[i].size(0),), -4.0))
     ubs.append(torch.full((weights[i].size(0),), 4.0))
+
 bounds = {"lbs" : lbs, "ubs" : ubs}
 
+
+layers = get_num_layers(trainer.model)
+direction_layer_pairs = [(direction, layer) for layer in range(layers-1, 0, -1) for direction in ["ubs", "lbs"]]
 params_dict = {"lbs" : {}, "ubs" : {}}
-for direction, layeri in [("ubs", 2), ("lbs", 2), ("ubs", 1), ("lbs", 1)]:
+for direction, layeri in direction_layer_pairs:
     params_dict[direction][layeri] = {}
     for neuron in range(200):
         gamma, alphas = initialize_params(3, weights)
         params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
-for _ in range(10):
-    for direction, layeri in [("ubs", 2), ("lbs", 2), ("ubs", 1), ("lbs", 1)]:
-        for neuron in tqdm(range(200)):
-            gamma = params_dict[direction][layeri][neuron]['gamma']
-            alphas = params_dict[direction][layeri][neuron]['alphas']
-            
-            optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
 
-            if direction == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
-            if direction == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
+bss = []
+cs = [[-0.2326, -1.6094]]
 
-            for _ in range(10):
-                optim.zero_grad()
-                loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
-                loss.backward()
-                optim.step()
+for c in tqdm(cs, desc="cs"):
+    bs = []
+    for _ in tqdm(range(3), desc="Aproximation iterations", leave=False):
+        for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
+            neurons = get_num_neurons(trainer.model, layeri - 1) # -1 to account for the input layer
+            for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
+                gamma = params_dict[direction][layeri][neuron]['gamma']
+                alphas = params_dict[direction][layeri][neuron]['alphas']
+                optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
+                if direction == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
+                if direction == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
+                for _ in range(10):
+                    optim.zero_grad()
+                    loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
+                    loss.backward()
+                    optim.step()
 
-                with torch.no_grad():
-                    if direction == "lbs":
-                        bounds[direction][layeri][neuron] = torch.max(bounds[direction][layeri][neuron], loss.detach())
-                    else:
-                        bounds[direction][layeri][neuron] = torch.min(bounds[direction][layeri][neuron], -loss.detach())
-                    gamma.data = torch.clamp(gamma.data, min=0)
-                    alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
-                    alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
+                    with torch.no_grad():
+                        if direction == "lbs":
+                            bounds[direction][layeri][neuron] = torch.max(bounds[direction][layeri][neuron], loss.detach())
+                        else:
+                            bounds[direction][layeri][neuron] = torch.min(bounds[direction][layeri][neuron], -loss.detach())
+                        gamma.data = torch.clamp(gamma.data, min=0)
+                        alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
+                        alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
 
-    # Create a new model
-    try:
-        m = gp.Model("verify_input")
+        m, xs, zs = get_triangle_grb_model(trainer.model, ubs, lbs, h, thresh)
+        
+        bs.append(get_optimized_grb_result(m, c, zs[0]))
+    bss.append(bs)
 
-        # Create variables
-        input = m.addMVar(shape=2, lb=-2, ub=2, name="input")
-        x0 = m.addMVar(shape=200, lb=-1e30, ub=1e30, name="x0")
-        z1 = m.addMVar(shape=200, lb=-1e30, ub=1e30, name="z1")
-        x1 = m.addMVar(shape=200, lb=-1e30, ub=1e30, name="x1")
-        z2 = m.addMVar(shape=200, lb=-1e30, ub=1e30, name="z2")
-        output = m.addVar(lb=-1e30, ub=1e30, name="output")
-
-        weight1 = weights[1].numpy()
-        weight2 = weights[2].numpy()
-        weight3 = weights[3].numpy()
-        bias1 = biases[1].numpy()
-        bias2 = biases[2].numpy()
-        bias3 = biases[3].numpy()
-        lbs1 = lbs[1].numpy()
-        lbs2 = lbs[2].numpy()
-        ubs1 = ubs[1].numpy()
-        ubs2 = ubs[2].numpy()
-
-        c = [-0.2326, -1.6094]
-        m.setObjective(c[0] * input[0] + c[1] * input[1], GRB.MINIMIZE)
-
-        m.Params.OutputFlag = 0
-
-        m.addConstr(((weight1 @ input) + bias1) == x0)
-
-        for i in range(200):
-            assert lbs1[i] <= ubs1[i]
-            if ubs1[i] <= 0:
-                m.addConstr(z1[i] == 0)
-            elif lbs1[i] >= 0:
-                m.addConstr(z1[i] == x0[i])
-            else:
-                m.addConstr(z1[i] >= 0)
-                m.addConstr(z1[i] >= x0[i])
-                m.addConstr(z1[i] <= x0[i] * ubs1[i] / (ubs1[i] - lbs1[i]) - (lbs1[i] * ubs1[i]) / (ubs1[i] - lbs1[i]))
-
-        m.addConstr(((weight2 @ z1) + bias2) == x1)
-
-        for i in range(200):
-            assert lbs2[i] <= ubs2[i]
-            if ubs2[i] <= 0:
-                m.addConstr(z2[i] == 0)
-            elif lbs2[i] >= 0:
-                m.addConstr(z2[i] == x1[i])
-            else:
-                m.addConstr(z2[i] >= 0)
-                m.addConstr(z2[i] >= x1[i])
-                m.addConstr(z2[i] <= x1[i] * ubs2[i] / (ubs2[i] - lbs2[i]) - (lbs2[i] * ubs2[i]) / (ubs2[i] - lbs2[i]))
-
-        m.addConstr(((weight3 @ z2) + bias3) == output)
-        m.addConstr(output + thresh <= 0)
-        m.optimize()
-        print(m.getObjective().getValue())
-
-    except gp.GurobiError as e:
-        print('Error code ' + str(e.errno) + ": " + str(e))
+plot(trainer.model, thresh, cs, bss)
