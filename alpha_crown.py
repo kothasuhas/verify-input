@@ -136,7 +136,8 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
 
     return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
 
-gamma, alphas, weights, biases = initialize(trainer.model, torch.Tensor([[-1], [0], [1]]), 3)
+h = torch.Tensor([[-1], [0], [1]])
+gamma, alphas, weights, biases = initialize(trainer.model, h, 3)
 lbs = [torch.full((2,), -2.0)]
 ubs = [torch.full((2,), 2.0)]
 for i in range(1, 3):
@@ -149,6 +150,7 @@ bounds = {"lbs" : lbs, "ubs" : ubs}
 
 bs = []
 cs = [[-0.2326, -1.6094]]
+
 for _ in tqdm(range(1)):
     for direction, layeri in tqdm([("lbs", 2), ("ubs", 2), ("lbs", 1), ("ubs", 1)], leave=False):
         for neuron in tqdm(range(1), leave=False):
@@ -175,30 +177,8 @@ for _ in tqdm(range(1)):
     try:
         layers = len(trainer.model) // 2
         assert layers * 2 == len(trainer.model), "Model should have an even number of entries"
-        m, xs, zs = get_triangle_grb_model(trainer.model, layers, ubs, lbs, thresh)
-
-        # for layer in range(layers):
-        #     w = weights[layer + 1].numpy()
-        #     b = biases[layer + 1].numpy()
-        #     m.addConstr(((w @ zs[layer]) + b) == xs[layer])
-        #     hidden_dim = w.shape[0]
-        #     if layer < layers - 1:
-        #         for i in range(hidden_dim):
-        #             u = ubs[layer+1][i]
-        #             l = lbs[layer+1][i]
-        #             assert l <= u
-        #             if u <= 0:
-        #                 m.addConstr(zs[layer+1][i] == 0)
-        #             elif l >= 0:
-        #                 m.addConstr(zs[layer+1][i] == xs[layer][i])
-        #             else:
-        #                 m.addConstr(zs[layer+1][i] >= 0)
-        #                 m.addConstr(zs[layer+1][i] >= xs[layer][i])
-        #                 m.addConstr(zs[layer+1][i] <= xs[layer][i] * u / (u - l) - (l * u) / (u - l))
-        # m.addConstr(xs[-1] + thresh <= 0)
-
+        m, xs, zs = get_triangle_grb_model(trainer.model, layers, ubs, lbs, h, thresh)
         c = [-0.2326, -1.6094]
-        
         
         bs.append(get_optimized_grb_result(m, c, zs[0]))
 

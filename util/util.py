@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 
 def _get_grb_model(model: trainer.nn.Sequential, layers: int):
     m = gp.Model("verify_input")
+    m.Params.OutputFlag = 0
 
     # Create variables
     input = m.addMVar(shape=2, lb=-2, ub=2, name="input")
@@ -28,7 +29,7 @@ def _get_grb_model(model: trainer.nn.Sequential, layers: int):
     xs.append(m.addMVar(shape=output_dim, lb=-1e30, ub=1e30, name="output"))
     return m, xs, zs
 
-def get_optimal_grb_model(model: trainer.nn.Sequential, layers: int, thresh: float):
+def get_optimal_grb_model(model: trainer.nn.Sequential, layers: int, h: torch.Tensor, thresh: float):
     m, xs, zs = _get_grb_model(model, layers)
     for layer in range(layers-1):
         w = model[layer*2 + 1].weight.detach().numpy()
@@ -38,37 +39,39 @@ def get_optimal_grb_model(model: trainer.nn.Sequential, layers: int, thresh: flo
         for i in range(hidden_dim):
             m.addConstr(zs[layer+1][i] == gp.max_(xs[layer][i], constant=0))
     w = model[-1].weight.detach().numpy()
+    print("Last", w.shape)
     b = model[-1].bias.detach().numpy()
     m.addConstr(((w @ zs[-1]) + b) == xs[-1])
-    m.addConstr(xs[-1][0] >= xs[-1][2] + thresh)
+    m.addConstr(h.detach().numpy().T @ xs[-1] + thresh <= 0)
 
-    m.Params.OutputFlag = 0
     m.Params.NonConvex = 2
 
     return m, xs, zs
 
-def get_triangle_grb_model(model: trainer.nn.Sequential, layers: int, ubs, lbs, thresh: float):
+def get_triangle_grb_model(model: trainer.nn.Sequential, layers: int, ubs, lbs, h: torch.Tensor, thresh: float):
     m, xs, zs = _get_grb_model(model, layers)
 
-    for layer in range(layers):
+    for layer in range(layers-1):
         w = model[layer*2 + 1].weight.detach().numpy()
         b = model[layer*2 + 1].bias.detach().numpy()
-        m.addConstr(((w @ zs[layer]) + b) == xs[layer])
         hidden_dim = w.shape[0]
-        if layer < layers - 1:
-            for i in range(hidden_dim):
-                u = ubs[layer+1][i]
-                l = lbs[layer+1][i]
-                assert l <= u
-                if u <= 0:
-                    m.addConstr(zs[layer+1][i] == 0)
-                elif l >= 0:
-                    m.addConstr(zs[layer+1][i] == xs[layer][i])
-                else:
-                    m.addConstr(zs[layer+1][i] >= 0)
-                    m.addConstr(zs[layer+1][i] >= xs[layer][i])
-                    m.addConstr(zs[layer+1][i] <= xs[layer][i] * u / (u - l) - (l * u) / (u - l))
-    m.addConstr(xs[-1] + thresh <= 0)
+        m.addConstr(((w @ zs[layer]) + b) == xs[layer])
+        for i in range(hidden_dim):
+            u = ubs[layer+1][i]
+            l = lbs[layer+1][i]
+            assert l <= u
+            if u <= 0:
+                m.addConstr(zs[layer+1][i] == 0)
+            elif l >= 0:
+                m.addConstr(zs[layer+1][i] == xs[layer][i])
+            else:
+                m.addConstr(zs[layer+1][i] >= 0)
+                m.addConstr(zs[layer+1][i] >= xs[layer][i])
+                m.addConstr(zs[layer+1][i] <= xs[layer][i] * u / (u - l) - (l * u) / (u - l))
+    w = model[-1].weight.detach().numpy()
+    b = model[-1].bias.detach().numpy()
+    m.addConstr(((w @ zs[-1]) + b) == xs[-1])
+    m.addConstr(h.detach().numpy().T @ xs[-1] + thresh <= 0)
 
     return m, xs, zs
 
