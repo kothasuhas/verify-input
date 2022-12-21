@@ -166,9 +166,9 @@ for direction, layeri in direction_layer_pairs:
 bss = []
 cs = [[-0.2326, -1.6094]]
 
-for c in cs:
+for c in tqdm(cs, desc="cs"):
     bs = []
-    for _ in tqdm(range(3), desc="Total iterations"):
+    for _ in tqdm(range(3), desc="Aproximation iterations", leave=False):
         for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
             neurons = get_num_neurons(trainer.model, layeri - 1) # -1 to account for the input layer
             for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
