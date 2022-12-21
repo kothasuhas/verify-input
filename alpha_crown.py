@@ -168,9 +168,11 @@ cs = [[-0.2326, -1.6094]]
 
 for c in tqdm(cs, desc="cs"):
     bs = []
-    for _ in tqdm(range(3), desc="Aproximation iterations", leave=False):
+    pbar = tqdm(range(3), leave=False)
+    for _ in pbar:
+        pbar.set_description(f"Best solution: {(-100.0 if len(bs) == 0 else bs[-1])}")
         for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
-            neurons = get_num_neurons(trainer.model, layeri - 1) # -1 to account for the input layer
+            neurons = get_num_neurons(trainer.model, layeri)
             for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
                 gamma = params_dict[direction][layeri][neuron]['gamma']
                 alphas = params_dict[direction][layeri][neuron]['alphas']

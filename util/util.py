@@ -35,7 +35,7 @@ def get_num_layers(model: trainer.nn.Sequential):
     return layers
 
 def get_num_neurons(model: trainer.nn.Sequential, layer: int):
-    return model[layer*2+1].weight.detach().numpy().shape[0]
+    return model[layer*2+1].weight.detach().numpy().shape[1]
 
 def get_optimal_grb_model(model: trainer.nn.Sequential, h: torch.Tensor, thresh: float):
     layers = get_num_layers(model)
