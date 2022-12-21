@@ -1,3 +1,5 @@
+import itertools
+
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
@@ -7,7 +9,7 @@ from tqdm import tqdm
 import core.trainer as trainer
 
 
-from util.util import _get_grb_model, plot, get_optimized_grb_result, get_triangle_grb_model
+from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model
 
 class args():
     def __init__(self):
@@ -151,38 +153,36 @@ bounds = {"lbs" : lbs, "ubs" : ubs}
 bs = []
 cs = [[-0.2326, -1.6094]]
 
-for _ in tqdm(range(1)):
-    for direction, layeri in tqdm([("lbs", 2), ("ubs", 2), ("lbs", 1), ("ubs", 1)], leave=False):
-        for neuron in tqdm(range(1), leave=False):
-            gamma, alphas, weights, biases = initialize(trainer.model, torch.Tensor([[-1], [0], [1]]), 3)
-            optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
-            if bounds == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
-            if bounds == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
-            for _ in range(10):
-                optim.zero_grad()
-                loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
-                loss.backward()
-                optim.step()
+for c in cs:
+    approx_b = []
+    for _ in tqdm(range(3), desc="Total iterations"):
+        layers = get_num_layers(trainer.model)
+        direction_layer_pairs = [(direction, layer) for layer in range(layers-1, 0, -1) for direction in ["lbs", "ubs"]]
+        for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
+            neurons = get_num_neurons(trainer.model, layeri - 1) # -1 to account for the input layer
+            for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
+                gamma, alphas, weights, biases = initialize(trainer.model, torch.Tensor([[-1], [0], [1]]), 3)
+                optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
+                if bounds == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
+                if bounds == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
+                for _ in range(10):
+                    optim.zero_grad()
+                    loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
+                    loss.backward()
+                    optim.step()
 
-                with torch.no_grad():
-                    if direction == "lbs":
-                        bounds[direction][layeri][neuron] = torch.max(bounds[direction][layeri][neuron], loss.detach())
-                    else:
-                        bounds[direction][layeri][neuron] = torch.min(bounds[direction][layeri][neuron], -loss.detach())
-                    gamma.data = torch.clamp(gamma.data, min=0)
-                    alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
-                    alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
+                    with torch.no_grad():
+                        if direction == "lbs":
+                            bounds[direction][layeri][neuron] = torch.max(bounds[direction][layeri][neuron], loss.detach())
+                        else:
+                            bounds[direction][layeri][neuron] = torch.min(bounds[direction][layeri][neuron], -loss.detach())
+                        gamma.data = torch.clamp(gamma.data, min=0)
+                        alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
+                        alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
 
-    # Create a new model
-    try:
-        layers = len(trainer.model) // 2
-        assert layers * 2 == len(trainer.model), "Model should have an even number of entries"
-        m, xs, zs = get_triangle_grb_model(trainer.model, layers, ubs, lbs, h, thresh)
-        c = [-0.2326, -1.6094]
+        m, xs, zs = get_triangle_grb_model(trainer.model, ubs, lbs, h, thresh)
         
-        bs.append(get_optimized_grb_result(m, c, zs[0]))
-
-    except gp.GurobiError as e:
-        print('Error code ' + str(e.errno) + ": " + str(e))
+        approx_b.append(get_optimized_grb_result(m, c, zs[0]))
+    bs.append(approx_b)
 
 plot(trainer.model, thresh, cs, bs)

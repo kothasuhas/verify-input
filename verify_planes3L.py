@@ -13,10 +13,7 @@ from util.util import plot, get_optimal_grb_model, get_optimized_grb_result
 def optimal_grb(model: trainer.nn.Sequential, h: torch.Tensor, thresh: float, cs: List[torch.Tensor]):
     bs = []
     try:
-        layers = len(model) // 2
-        assert layers * 2 == len(model), "Model should have an even number of entries"
-
-        m, xs, zs = get_optimal_grb_model(model, layers, h, thresh)
+        m, xs, zs = get_optimal_grb_model(model, h, thresh)
         for c in tqdm(cs):
             bs.append(get_optimized_grb_result(m, c, zs[0]))
     except gp.GurobiError as e:
