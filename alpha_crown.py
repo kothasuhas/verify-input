@@ -21,10 +21,9 @@ trainer = trainer.Trainer(args())
 trainer.load_model("test-weights.pt") # 200 200 3
 trainer.model.eval()
 
-def initialize(model, h, L):
+def initialize_weights(model, h, L):
     weights = [None]
     biases = [None]
-    alphas = [None]
     
     for i in range(1, L+1):
         weights.append(model[2*i - 1].weight.detach())
@@ -33,6 +32,11 @@ def initialize(model, h, L):
     weights[L] = torch.matmul(h.transpose(0, 1), weights[L])
     biases[L]  = torch.matmul(h.transpose(0, 1), biases[L])
 
+    return weights, biases
+
+def initialize_params(L, weights):
+    alphas = [None]
+
     for i in range(1, L):
         alphas.append(torch.full((weights[i].size(0),), 0.5))
         alphas[-1].requires_grad = True
@@ -40,7 +44,7 @@ def initialize(model, h, L):
     gamma = torch.full((1,), 0.01)
     gamma.requires_grad = True
 
-    return gamma, alphas, weights, biases
+    return gamma, alphas
 
 def get_diagonals(weights, lbs, ubs, alphas, L):
     A = [None for _ in range(L)]
@@ -48,7 +52,7 @@ def get_diagonals(weights, lbs, ubs, alphas, L):
     assert len(weights) == L + 1
     for i in range(L-1, 0, -1):  # 1, ..., L-1  -> entry L not used
         if i == L-1:
-            A[i] = gamma * weights[L]
+            A[i] = weights[L]
         else:
             A[i] = A[i+1].matmul(D[i+1]).matmul(weights[i+1])
 
@@ -135,16 +139,29 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
     return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
 
 h = torch.Tensor([[-1], [0], [1]])
-gamma, alphas, weights, biases = initialize(trainer.model, h, 3)
+p = 0.9
+thresh = np.log(p / (1 - p))
+
+weights, biases = initialize_weights(trainer.model, h, 3)
+
 lbs = [torch.full((2,), -2.0)]
 ubs = [torch.full((2,), 2.0)]
 for i in range(1, 3):
     lbs.append(torch.full((weights[i].size(0),), -4.0))
     ubs.append(torch.full((weights[i].size(0),), 4.0))
 
-p = 0.9
-thresh = np.log(p / (1 - p))
 bounds = {"lbs" : lbs, "ubs" : ubs}
+
+
+layers = get_num_layers(trainer.model)
+direction_layer_pairs = [(direction, layer) for layer in range(layers-1, 0, -1) for direction in ["ubs", "lbs"]]
+params_dict = {"lbs" : {}, "ubs" : {}}
+for direction, layeri in direction_layer_pairs:
+    params_dict[direction][layeri] = {}
+    for neuron in range(200):
+        gamma, alphas = initialize_params(3, weights)
+        params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
+
 
 bs = []
 cs = [[-0.2326, -1.6094]]
@@ -152,15 +169,14 @@ cs = [[-0.2326, -1.6094]]
 for c in cs:
     approx_b = []
     for _ in tqdm(range(3), desc="Total iterations"):
-        layers = get_num_layers(trainer.model)
-        direction_layer_pairs = [(direction, layer) for layer in range(layers-1, 0, -1) for direction in ["lbs", "ubs"]]
         for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
             neurons = get_num_neurons(trainer.model, layeri - 1) # -1 to account for the input layer
             for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
-                gamma, alphas, weights, biases = initialize(trainer.model, torch.Tensor([[-1], [0], [1]]), 3)
+                gamma = params_dict[direction][layeri][neuron]['gamma']
+                alphas = params_dict[direction][layeri][neuron]['alphas']
                 optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
-                if bounds == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
-                if bounds == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
+                if direction == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
+                if direction == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
                 for _ in range(10):
                     optim.zero_grad()
                     loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
