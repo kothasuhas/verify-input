@@ -163,11 +163,11 @@ for direction, layeri in direction_layer_pairs:
         params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
 
-bs = []
+bss = []
 cs = [[-0.2326, -1.6094]]
 
 for c in cs:
-    approx_b = []
+    bs = []
     for _ in tqdm(range(3), desc="Total iterations"):
         for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
             neurons = get_num_neurons(trainer.model, layeri - 1) # -1 to account for the input layer
@@ -194,7 +194,7 @@ for c in cs:
 
         m, xs, zs = get_triangle_grb_model(trainer.model, ubs, lbs, h, thresh)
         
-        approx_b.append(get_optimized_grb_result(m, c, zs[0]))
-    bs.append(approx_b)
+        bs.append(get_optimized_grb_result(m, c, zs[0]))
+    bss.append(bs)
 
-plot(trainer.model, thresh, cs, bs)
+plot(trainer.model, thresh, cs, bss)

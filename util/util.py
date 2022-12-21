@@ -131,6 +131,6 @@ def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bs
         for b in bs:
             abline(-c[0] / c[1], b / c[1])
 
-    print(cs, bs)
+    print(cs, bss)
 
     plt.show()
