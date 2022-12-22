@@ -1,4 +1,4 @@
-import itertools
+from typing import Tuple
 
 import gurobipy as gp
 from gurobipy import GRB
@@ -162,6 +162,34 @@ for direction, layeri in direction_layer_pairs:
         gamma, alphas = initialize_params(3, weights)
         params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
+class Split:
+    layer: int
+    neuron: int
+    upper: bool
+
+    def __init__(self, layer: int, neuron: int, upper: bool):
+        self.layer = layer
+        self.neuron = neuron
+        self.upper = upper
+
+class Branch:
+    split_neuron: Split
+    left_child: "Branch"
+    right_child: "Branch"
+    parent: "Branch"
+
+    def __init__(self, split_neuron=None, left_child=None, right_child=None, parent=None):
+        self.split_neuron = split_neuron
+        self.left_child = left_child
+        self.right_child = right_child
+        self.parent = parent
+    
+    def split_on(self, split_neuron: Split) -> Tuple["Branch", "Branch"]:
+        left = Branch(split_neuron=split_neuron, parent=self)
+        right = Branch(split_neuron=split_neuron, parent=self)
+        self.left_child = left
+        self.right_child = right
+        return left, right
 
 bss = []
 cs = [[-0.2326, -1.6094]]
