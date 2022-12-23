@@ -17,11 +17,12 @@ class args():
         self.num_epochs = 1
         self.lr = 0.1
 
-trainer = trainer.Trainer(args())
-trainer.load_model("test-weights.pt") # 200 200 3
-trainer.model.eval()
+t = trainer.Trainer(args())
+t.load_model("test-weights.pt") # 200 200 3
+t.model.eval()
 
-def initialize_weights(model, h, L):
+def initialize_weights(model, h):
+    L = get_num_layers(model)
     weights = [None]
     biases = [None]
     
@@ -138,69 +139,58 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
 
     return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
 
-h = torch.Tensor([[-1], [0], [1]])
+
 p = 0.9
 thresh = np.log(p / (1 - p))
 
-weights, biases = initialize_weights(trainer.model, h, 3)
+def _get_direction_layer_pairs(model: trainer.nn.Sequential):
+    num_layers = get_num_layers(model)
+    return [(direction, layer) for layer in range(num_layers-1, 0, -1) for direction in ["ubs", "lbs"]]
 
-lbs = [torch.full((2,), -2.0)]
-ubs = [torch.full((2,), 2.0)]
-for i in range(1, 3):
-    lbs.append(torch.full((weights[i].size(0),), -4.0))
-    ubs.append(torch.full((weights[i].size(0),), 4.0))
+def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor):
+    num_layers = get_num_layers(model)
+    weights, biases = initialize_weights(model, h)
 
-bounds = {"lbs" : lbs, "ubs" : ubs}
+    lbs = [input_lbs]
+    ubs = [input_ubs]
+    post_activation_lbs = input_lbs
+    post_activation_ubs = input_ubs
+    for i in range(1, num_layers):
+        w = weights[i]
+        pre_activation_lbs = torch.where(w > 0, w, 0) @ post_activation_lbs + torch.where(w < 0, w, 0) @ post_activation_ubs + biases[i]
+        pre_activation_ubs = torch.where(w > 0, w, 0) @ post_activation_ubs + torch.where(w < 0, w, 0) @ post_activation_lbs + biases[i]
+        lbs.append(pre_activation_lbs)
+        ubs.append(pre_activation_ubs)
+        post_activation_lbs = pre_activation_lbs.clamp(min=0)
+        post_activation_ubs = pre_activation_ubs.clamp(min=0)
+
+    bounds = {"lbs" : lbs, "ubs" : ubs}
 
 
-layers = get_num_layers(trainer.model)
-direction_layer_pairs = [(direction, layer) for layer in range(layers-1, 0, -1) for direction in ["ubs", "lbs"]]
-params_dict = {"lbs" : {}, "ubs" : {}}
-for direction, layeri in direction_layer_pairs:
-    params_dict[direction][layeri] = {}
-    for neuron in range(200):
-        gamma, alphas = initialize_params(3, weights)
-        params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
+    layers = get_num_layers(t.model)
+    params_dict = {"lbs" : {}, "ubs" : {}}
+    for direction, layeri in _get_direction_layer_pairs(model):
+        params_dict[direction][layeri] = {}
+        for neuron in range(200):
+            gamma, alphas = initialize_params(3, weights)
+            params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
-class Split:
-    layer: int
-    neuron: int
-    upper: bool
-
-    def __init__(self, layer: int, neuron: int, upper: bool):
-        self.layer = layer
-        self.neuron = neuron
-        self.upper = upper
-
-class Branch:
-    split_neuron: Split
-    left_child: "Branch"
-    right_child: "Branch"
-    parent: "Branch"
-
-    def __init__(self, split_neuron=None, left_child=None, right_child=None, parent=None):
-        self.split_neuron = split_neuron
-        self.left_child = left_child
-        self.right_child = right_child
-        self.parent = parent
-    
-    def split_on(self, split_neuron: Split) -> Tuple["Branch", "Branch"]:
-        left = Branch(split_neuron=split_neuron, parent=self)
-        right = Branch(split_neuron=split_neuron, parent=self)
-        self.left_child = left
-        self.right_child = right
-        return left, right
+    return bounds, params_dict, weights, biases
 
 bss = []
 cs = [[-0.2326, -1.6094]]
+h = torch.Tensor([[-1], [0], [1]])
 
 for c in tqdm(cs, desc="cs"):
+    bounds, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.full((2,), -2.0), input_ubs=torch.full((2,), 2.0), h=h)
+    lbs = bounds["lbs"]
+    ubs = bounds["ubs"]
     bs = []
     pbar = tqdm(range(3), leave=False)
     for _ in pbar:
         pbar.set_description(f"Best solution: {(-100.0 if len(bs) == 0 else bs[-1])}")
-        for direction, layeri in tqdm(direction_layer_pairs, desc="Directions & Layers", leave=False):
-            neurons = get_num_neurons(trainer.model, layeri)
+        for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
+            neurons = get_num_neurons(t.model, layeri)
             for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
                 gamma = params_dict[direction][layeri][neuron]['gamma']
                 alphas = params_dict[direction][layeri][neuron]['alphas']
@@ -222,9 +212,9 @@ for c in tqdm(cs, desc="cs"):
                         alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
                         alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
 
-        m, xs, zs = get_triangle_grb_model(trainer.model, ubs, lbs, h, thresh)
+        m, xs, zs = get_triangle_grb_model(t.model, ubs, lbs, h, thresh)
         
         bs.append(get_optimized_grb_result(m, c, zs[0]))
     bss.append(bs)
 
-plot(trainer.model, thresh, cs, bss)
+plot(t.model, thresh, cs, bss)
