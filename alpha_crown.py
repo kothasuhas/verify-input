@@ -47,6 +47,14 @@ def initialize_params(L, weights):
 
     return gamma, alphas
 
+def _get_relu_state_masks(lbs, ubs, A, i):
+    relu_on_mask = (lbs[i] >= 0)
+    relu_off_mask = (~relu_on_mask) * (ubs[i] <= 0)
+    relu_lower_bound_mask = (~relu_on_mask) * (~relu_off_mask) * (A[i][0] >= 0)
+    relu_upper_bound_mask = (~relu_on_mask) * (~relu_off_mask) * (~relu_lower_bound_mask)
+    assert torch.all(torch.logical_xor(torch.logical_xor(torch.logical_xor(relu_on_mask, relu_off_mask), relu_lower_bound_mask), relu_upper_bound_mask))
+    return relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask
+
 def get_diagonals(weights, lbs, ubs, alphas, L):
     A = [None for _ in range(L)]
     D = [None for _ in range(L)]
@@ -59,32 +67,26 @@ def get_diagonals(weights, lbs, ubs, alphas, L):
 
         D[i] = torch.zeros(weights[i].size(0), weights[i].size(0))
 
-        for j in range(D[i].size(0)):
-            if lbs[i][j] >= 0:   # ReLU always on
-                diagonal_entry = 1
-            elif ubs[i][j] <= 0: # ReLU always off
-                diagonal_entry = 0
-            elif A[i][0][j] >= 0:   # use ReLU lower bound
-                diagonal_entry = alphas[i][j]
-            else:    # use ReLU upper bound
-                assert A[i][0][j] < 0
-                diagonal_entry = ubs[i][j] / (ubs[i][j] - lbs[i][j])
-            D[i][j][j] = diagonal_entry
+        relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, i)
+        D[i][relu_on_mask, relu_on_mask] = 1
+        D[i][relu_off_mask,relu_off_mask] = 0
+        D[i][relu_lower_bound_mask, relu_lower_bound_mask] = alphas[i][relu_lower_bound_mask]
+        D[i][relu_upper_bound_mask, relu_upper_bound_mask] = (ubs[i] / (ubs[i] - lbs[i]))[relu_upper_bound_mask]
 
     return A, D
 
+import time
+total_time = 0
 def get_bias_lbs(A, lbs, ubs, L):
     bias_lbs = [None]
 
     for i in range(1, L):
         bias_lbs.append(torch.zeros(A[i].size(1)))
-        for j in range(bias_lbs[i].size(0)):
-            if lbs[i][j] >= 0 or ubs[i][j] <= 0: # Stable neuron
-                bias_lbs[i][j] = 0
-            elif A[i][0][j] >= 0:
-                bias_lbs[i][j] = 0
-            elif A[i][0][j] < 0:
-                bias_lbs[i][j] = - (ubs[i][j] * lbs[i][j]) / (ubs[i][j] - lbs[i][j])
+        relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, i)
+        bias_lbs[i][relu_on_mask] = 0
+        bias_lbs[i][relu_off_mask] = 0
+        bias_lbs[i][relu_lower_bound_mask] = 0
+        bias_lbs[i][relu_upper_bound_mask] = (- (ubs[i] * lbs[i]) / (ubs[i] - lbs[i]))[relu_upper_bound_mask]
 
     return bias_lbs
 
@@ -171,8 +173,8 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
     params_dict = {"lbs" : {}, "ubs" : {}}
     for direction, layeri in _get_direction_layer_pairs(model):
         params_dict[direction][layeri] = {}
-        for neuron in range(200):
-            gamma, alphas = initialize_params(3, weights)
+        for neuron in range(get_num_neurons(model, layeri)):
+            gamma, alphas = initialize_params(layers, weights)
             params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
     return bounds, params_dict, weights, biases
