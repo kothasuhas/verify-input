@@ -166,9 +166,6 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
         post_activation_lbs = pre_activation_lbs.clamp(min=0)
         post_activation_ubs = pre_activation_ubs.clamp(min=0)
 
-    bounds = {"lbs" : lbs, "ubs" : ubs}
-
-
     layers = get_num_layers(t.model)
     params_dict = {"lbs" : {}, "ubs" : {}}
     for direction, layeri in _get_direction_layer_pairs(model):
@@ -177,16 +174,14 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
             gamma, alphas = initialize_params(layers, weights)
             params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
-    return bounds, params_dict, weights, biases
+    return lbs, ubs, params_dict, weights, biases
 
 bss = []
 cs = [[-0.2326, -1.6094]]
 h = torch.Tensor([[-1], [0], [1]])
 
 for c in tqdm(cs, desc="cs"):
-    bounds, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.full((2,), -2.0), input_ubs=torch.full((2,), 2.0), h=h)
-    lbs = bounds["lbs"]
-    ubs = bounds["ubs"]
+    lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h)
     bs = []
     pbar = tqdm(range(3), leave=False)
     for _ in pbar:
@@ -197,8 +192,8 @@ for c in tqdm(cs, desc="cs"):
                 gamma = params_dict[direction][layeri][neuron]['gamma']
                 alphas = params_dict[direction][layeri][neuron]['alphas']
                 optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
-                if direction == "lbs" and (bounds[direction][layeri][neuron] >= 0.0): continue
-                if direction == "ubs" and (bounds[direction][layeri][neuron] <= 0.0): continue
+                if direction == "lbs" and (lbs[layeri][neuron] >= 0.0): continue
+                if direction == "ubs" and (ubs[layeri][neuron] <= 0.0): continue
                 for _ in range(10):
                     optim.zero_grad()
                     loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
@@ -207,9 +202,9 @@ for c in tqdm(cs, desc="cs"):
 
                     with torch.no_grad():
                         if direction == "lbs":
-                            bounds[direction][layeri][neuron] = torch.max(bounds[direction][layeri][neuron], loss.detach())
+                            lbs[layeri][neuron] = torch.max(lbs[layeri][neuron], loss.detach())
                         else:
-                            bounds[direction][layeri][neuron] = torch.min(bounds[direction][layeri][neuron], -loss.detach())
+                            ubs[layeri][neuron] = torch.min(ubs[layeri][neuron], -loss.detach())
                         gamma.data = torch.clamp(gamma.data, min=0)
                         alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
                         alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
