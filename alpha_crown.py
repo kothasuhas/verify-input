@@ -75,8 +75,6 @@ def get_diagonals(weights, lbs, ubs, alphas, L):
 
     return A, D
 
-import time
-total_time = 0
 def get_bias_lbs(A, lbs, ubs, L):
     bias_lbs = [None]
 
@@ -109,37 +107,48 @@ def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
     return gamma * a_crown, gamma * c_crown
 
 def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, neuron, direction):
-    L1 = layeri
-    weights1 = weights[:layeri+1]
-    biases1  = biases[:layeri+1]
-    ubs1 = ubs[:layeri]
-    lbs1 = lbs[:layeri]
-    alphas1 = alphas[:layeri]
+    if layeri == 0:
+        c = torch.zeros(weights[1].size(1))
+        c[neuron] = (1 if direction == "lbs" else -1)
+        a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L)
+        a_crown += c
 
-    L2 = L - layeri + 1
-    weights2 = [None, torch.eye(weights1[-1].size(0))] + weights[layeri+1:]
-    biases2  = [None, torch.zeros(weights1[-1].size(0))] + biases[layeri+1:]
-    ubs2 = [ubs[layeri]] + ubs[layeri:]
-    lbs2 = [lbs[layeri]] + lbs[layeri:]
-    alphas2 = [None] + alphas[layeri:]
+        x_0 = (ubs[0] + lbs[0]) / 2.0
+        eps = (ubs[0] - lbs[0]) / 2.0
 
-    c = torch.zeros(weights2[1].size(1))
-    c[neuron] = (1 if direction == "lbs" else -1)
+        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
+    else:
+        L1 = layeri
+        weights1 = weights[:layeri+1]
+        biases1  = biases[:layeri+1]
+        ubs1 = ubs[:layeri]
+        lbs1 = lbs[:layeri]
+        alphas1 = alphas[:layeri]
 
-    a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
+        L2 = L - layeri + 1
+        weights2 = [None, torch.eye(weights1[-1].size(0))] + weights[layeri+1:]
+        biases2  = [None, torch.zeros(weights1[-1].size(0))] + biases[layeri+1:]
+        ubs2 = [ubs[layeri]] + ubs[layeri:]
+        lbs2 = [lbs[layeri]] + lbs[layeri:]
+        alphas2 = [None] + alphas[layeri:]
 
-    weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
-    biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
-    
-    a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, 1.0, alphas1, lbs1, ubs1, L1)
-    
-    a_crown = a_crown_full
-    c_crown = c_crown_partial + c_crown_full
+        c = torch.zeros(weights2[1].size(1))
+        c[neuron] = (1 if direction == "lbs" else -1)
 
-    x_0 = (ubs[0] + lbs[0]) / 2.0
-    eps = (ubs[0] - lbs[0]) / 2.0
+        a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
 
-    return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
+        weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
+        biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
+        
+        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, 1.0, alphas1, lbs1, ubs1, L1)
+        
+        a_crown = a_crown_full
+        c_crown = c_crown_partial + c_crown_full
+
+        x_0 = (ubs[0] + lbs[0]) / 2.0
+        eps = (ubs[0] - lbs[0]) / 2.0
+
+        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
 
 
 p = 0.9
@@ -147,7 +156,7 @@ thresh = np.log(p / (1 - p))
 
 def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
-    return [(direction, layer) for layer in range(num_layers-1, 0, -1) for direction in ["ubs", "lbs"]]
+    return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
 
 def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor):
     num_layers = get_num_layers(model)
@@ -183,7 +192,7 @@ h = torch.Tensor([[-1], [0], [1]])
 for c in tqdm(cs, desc="cs"):
     lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h)
     bs = []
-    pbar = tqdm(range(3), leave=False)
+    pbar = tqdm(range(10), leave=False)
     for _ in pbar:
         pbar.set_description(f"Best solution: {(-100.0 if len(bs) == 0 else bs[-1])}")
         for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
@@ -191,9 +200,13 @@ for c in tqdm(cs, desc="cs"):
             for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
                 gamma = params_dict[direction][layeri][neuron]['gamma']
                 alphas = params_dict[direction][layeri][neuron]['alphas']
-                optim = torch.optim.SGD([gamma, alphas[1], alphas[2]], lr=0.1, momentum=0.9, maximize=True)
-                if direction == "lbs" and (lbs[layeri][neuron] >= 0.0): continue
-                if direction == "ubs" and (ubs[layeri][neuron] <= 0.0): continue
+                optim = torch.optim.SGD([
+                    {'params': gamma, 'lr' : 0.0001}, 
+                    {'params': alphas[1]},
+                    {'params': alphas[2]}
+                ], lr=3.0, momentum=0.9, maximize=True)
+                if direction == "lbs" and (lbs[layeri][neuron] >= 0.0) and layeri > 0: continue
+                if direction == "ubs" and (ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
                 for _ in range(10):
                     optim.zero_grad()
                     loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
