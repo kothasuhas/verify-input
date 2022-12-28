@@ -32,7 +32,7 @@ def main():
     t = trainer.Trainer(args())
     t.load_model("test-weights.pt") # 200 200 3
 
-    cs = [torch.randn(2) for _ in range(3)]
+    # cs = [torch.randn(2) for _ in range(3)]
     #cs = []
     cs = [[-0.2326, -1.6094]]
 
@@ -42,7 +42,7 @@ def main():
     h = torch.Tensor([[-1], [0], [1]])
     bs = optimal_grb(t.model, h, thresh, cs)
 
-    plot(t.model, thresh, cs, bs)
+    plot(t.model, thresh, cs, [bs])
 
     
 

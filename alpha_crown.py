@@ -21,7 +21,7 @@ t = trainer.Trainer(args())
 t.load_model("test-weights.pt") # 200 200 3
 t.model.eval()
 
-def initialize_weights(model, h):
+def initialize_weights(model, h, thresh):
     L = get_num_layers(model)
     weights = [None]
     biases = [None]
@@ -31,7 +31,7 @@ def initialize_weights(model, h):
         biases.append(model[2*i - 1].bias.detach())
 
     weights[L] = torch.matmul(h.transpose(0, 1), weights[L])
-    biases[L]  = torch.matmul(h.transpose(0, 1), biases[L])
+    biases[L]  = torch.matmul(h.transpose(0, 1), biases[L]) + thresh
 
     return weights, biases
 
@@ -106,7 +106,7 @@ def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
 
     return gamma * a_crown, gamma * c_crown
 
-def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, neuron, direction):
+def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, direction):
     if layeri == 0:
         c = torch.zeros(weights[1].size(1))
         c[neuron] = (1 if direction == "lbs" else -1)
@@ -116,7 +116,7 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
         x_0 = (ubs[0] + lbs[0]) / 2.0
         eps = (ubs[0] - lbs[0]) / 2.0
 
-        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
+        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown 
     else:
         L1 = layeri
         weights1 = weights[:layeri+1]
@@ -148,7 +148,7 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, L, layeri, 
         x_0 = (ubs[0] + lbs[0]) / 2.0
         eps = (ubs[0] - lbs[0]) / 2.0
 
-        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown + gamma * thresh 
+        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown
 
 
 p = 0.9
@@ -158,9 +158,9 @@ def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
     return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
 
-def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor):
+def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor, thresh: float):
     num_layers = get_num_layers(model)
-    weights, biases = initialize_weights(model, h)
+    weights, biases = initialize_weights(model, h, thresh)
 
     lbs = [input_lbs]
     ubs = [input_ubs]
@@ -190,7 +190,7 @@ cs = [[-0.2326, -1.6094]]
 h = torch.Tensor([[-1], [0], [1]])
 
 for c in tqdm(cs, desc="cs"):
-    lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h)
+    lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h, thresh=thresh)
     bs = []
     pbar = tqdm(range(10), leave=False)
     for _ in pbar:
@@ -209,7 +209,7 @@ for c in tqdm(cs, desc="cs"):
                 if direction == "ubs" and (ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
                 for _ in range(10):
                     optim.zero_grad()
-                    loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, thresh, 3, layeri, neuron, direction)
+                    loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, 3, layeri, neuron, direction)
                     loss.backward()
                     optim.step()
 
