@@ -140,13 +140,11 @@ def plot(model: trainer.nn.Sequential, thresh: float, approximated_input_bounds:
         """Plot a line from slope and intercept"""
         axes = plt.gca()
         y_vals = intercept + slope * x_vals
-        print(slope)
 
         min_y_val = min(y_vals)
         max_y_val = max(y_vals)
         min_asserted_y_val = asserted_y_vals[0]
         max_asserted_y_val = asserted_y_vals[1]
-        print(x_vals)
         if slope < 0:
             if max_y_val > max_asserted_y_val: # a
                 new_min_x_val = (max_asserted_y_val - intercept) / slope
@@ -186,16 +184,8 @@ def plot(model: trainer.nn.Sequential, thresh: float, approximated_input_bounds:
                 plt.plot(np.array([x_vals[0], x_vals[0]]), np.array([min_asserted_y_val, min_y_val]), '--', color="black")
              
 
-
-        print(x_vals.dtype)
-
-        # assert min(y_vals) >= asserted_y_vals[0]
-        # assert max(y_vals) <= asserted_y_vals[1]
-
         y_vals = intercept + slope * x_vals
         plt.plot(x_vals, y_vals, '--', color="black")
-        # plt.plot(x_vals, x_vals * 0 + asserted_y_vals[0], "--", color="red")
-        # plt.plot(x_vals, x_vals * 0 + asserted_y_vals[1], "--", color="red")
 
     for approximated_input_bound in approximated_input_bounds:
         c = approximated_input_bound.c
