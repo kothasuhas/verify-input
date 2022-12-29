@@ -21,7 +21,7 @@ t = trainer.Trainer(args())
 t.load_model("test-weights.pt") # 200 200 3
 t.model.eval()
 
-def initialize_weights(model, h, thresh):
+def initialize_weights(model, H, d):
     L = get_num_layers(model)
     weights = [None]
     biases = [None]
@@ -30,8 +30,8 @@ def initialize_weights(model, h, thresh):
         weights.append(model[2*i - 1].weight.detach())
         biases.append(model[2*i - 1].bias.detach())
 
-    weights[L] = torch.matmul(h.transpose(0, 1), weights[L])
-    biases[L]  = torch.matmul(h.transpose(0, 1), biases[L]) + thresh
+    weights[L] = H.matmul(weights[L])
+    biases[L]  = H.matmul(biases[L]) + d
 
     return weights, biases
 
@@ -42,7 +42,7 @@ def initialize_params(L, weights):
         alphas.append(torch.full((weights[i].size(0),), 0.5))
         alphas[-1].requires_grad = True
 
-    gamma = torch.full((1,), 0.01)
+    gamma = torch.full((weights[-1].size(0), 1), 0.1)
     gamma.requires_grad = True
 
     return gamma, alphas
@@ -104,7 +104,7 @@ def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
     c_crown = sum([Omega(L, i).matmul(biases[i]) for i in range(1, L + 1)]) \
             + sum([Omega(L, i).matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
 
-    return gamma * a_crown, gamma * c_crown
+    return (a_crown, c_crown) if gamma is None else (gamma.T.matmul(a_crown), gamma.T.matmul(c_crown))
 
 def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, direction):
     if layeri == 0:
@@ -140,7 +140,7 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, 
         weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
         biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
         
-        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, 1.0, alphas1, lbs1, ubs1, L1)
+        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, None, alphas1, lbs1, ubs1, L1)
         
         a_crown = a_crown_full
         c_crown = c_crown_partial + c_crown_full
@@ -150,17 +150,13 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, 
 
         return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown
 
-
-p = 0.9
-thresh = np.log(p / (1 - p))
-
 def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
     return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
 
-def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor, thresh: float):
+def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, H: torch.Tensor, d: torch.Tensor):
     num_layers = get_num_layers(model)
-    weights, biases = initialize_weights(model, h, thresh)
+    weights, biases = initialize_weights(model, H, d)
 
     lbs = [input_lbs]
     ubs = [input_ubs]
@@ -187,12 +183,14 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
 
 bss = []
 cs = [[-0.2326, -1.6094]]
-h = torch.Tensor([[-1], [0], [1]])
+H = torch.Tensor([[-1, 0, 1], [-1, 0, 1]])
+thresh = np.log(0.9 / (1 - 0.9))
+d = torch.Tensor([thresh, thresh])
 
 for c in tqdm(cs, desc="cs"):
-    lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h, thresh=thresh)
+    lbs, ubs, params_dict, weights, biases = initialize_all(t.model, torch.Tensor([-2.0, -2.0]), torch.Tensor([2.0, 2.0]), H, d)
     bs = []
-    pbar = tqdm(range(10), leave=False)
+    pbar = tqdm(range(6), leave=False)
     for _ in pbar:
         pbar.set_description(f"Best solution: {(-100.0 if len(bs) == 0 else bs[-1])}")
         for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
@@ -222,9 +220,9 @@ for c in tqdm(cs, desc="cs"):
                         alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
                         alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
 
-        m, xs, zs = get_triangle_grb_model(t.model, ubs, lbs, h, thresh)
+        m, xs, zs = get_triangle_grb_model(t.model, ubs, lbs, H, d)
         
         bs.append(get_optimized_grb_result(m, c, zs[0]))
     bss.append(bs)
 
-plot(t.model, thresh, cs, bss)
+plot(t.model, H, d, cs, bss)

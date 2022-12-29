@@ -37,7 +37,7 @@ def get_num_layers(model: trainer.nn.Sequential):
 def get_num_neurons(model: trainer.nn.Sequential, layer: int):
     return model[layer*2+1].weight.detach().numpy().shape[1]
 
-def get_optimal_grb_model(model: trainer.nn.Sequential, h: torch.Tensor, thresh: float):
+def get_optimal_grb_model(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor):
     layers = get_num_layers(model)
 
     m, xs, zs = _get_grb_model(model, layers)
@@ -51,13 +51,13 @@ def get_optimal_grb_model(model: trainer.nn.Sequential, h: torch.Tensor, thresh:
     w = model[-1].weight.detach().numpy()
     b = model[-1].bias.detach().numpy()
     m.addConstr(((w @ zs[-1]) + b) == xs[-1])
-    m.addConstr(h.detach().numpy().T @ xs[-1] + thresh <= 0)
+    m.addConstr(H.detach().numpy() @ xs[-1] + d <= 0)
 
     m.Params.NonConvex = 2
 
     return m, xs, zs
 
-def get_triangle_grb_model(model: trainer.nn.Sequential, ubs, lbs, h: torch.Tensor, thresh: float):
+def get_triangle_grb_model(model: trainer.nn.Sequential, ubs, lbs, H: torch.Tensor, d: torch.Tensor):
     layers = get_num_layers(model)
         
     m, xs, zs = _get_grb_model(model, layers)
@@ -82,7 +82,7 @@ def get_triangle_grb_model(model: trainer.nn.Sequential, ubs, lbs, h: torch.Tens
     w = model[-1].weight.detach().numpy()
     b = model[-1].bias.detach().numpy()
     m.addConstr(((w @ zs[-1]) + b) == xs[-1])
-    m.addConstr(h.detach().numpy().T @ xs[-1] + thresh <= 0)
+    m.addConstr(H.detach().numpy() @ xs[-1] + d.detach().numpy() <= 0)
 
     return m, xs, zs
 
@@ -97,14 +97,15 @@ def get_optimized_grb_result(m: gp.Model, c, inputs):
                 
     return m.getObjective().getValue()
 
-def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bss: List[List[float]]):
+def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, cs: List[torch.Tensor], bss: List[List[float]]):
     resolution = 1000
     XX, YY = np.meshgrid(np.linspace(-2, 2, resolution), np.linspace(-2, 2, resolution))
     X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
     y0 = model(X0)
     id = torch.max(y0[:,0], y0[:,1])
     ZZ = (y0[:,2] - id).resize(resolution,resolution).data.numpy()
-    target_area = (y0[:,0] >= y0[:,2] + thresh).resize(resolution,resolution).data.numpy()
+    output_constraints = torch.all(H.matmul(y0.unsqueeze(-1)).squeeze(-1) + d <= 0, dim=1)
+    target_area = (output_constraints).resize(resolution,resolution).data.numpy()
     bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
 
     fig, ax = plt.subplots(figsize=(8,8))
