@@ -23,36 +23,26 @@ t.model.eval()
 
 def initialize_weights(model, H, d):
     L = get_num_layers(model)
-    weights = [None]
-    biases = [None]
-    
-    for i in range(1, L+1):
-        weights.append(model[2*i - 1].weight.detach())
-        biases.append(model[2*i - 1].bias.detach())
+    weights = [None] + [model[2*i - 1].weight.detach() for i in range(1, L+1)]
+    biases = [None] + [model[2*i - 1].bias.detach() for i in range(1, L+1)]
 
     weights[L] = H.matmul(weights[L])
     biases[L]  = H.matmul(biases[L]) + d
 
     return weights, biases
 
-def initialize_params(L, weights):
-    alphas = [None]
-
-    for i in range(1, L):
-        alphas.append(torch.full((weights[i].size(0),), 0.5))
-        alphas[-1].requires_grad = True
-
-    gamma = torch.full((weights[-1].size(0), 1), 0.1)
-    gamma.requires_grad = True
+def initialize_params(weights, L):
+    alphas = [None] + [torch.full((weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
+    gamma = torch.full((weights[-1].size(0), 1), 0.1, requires_grad=True)
 
     return gamma, alphas
 
 def _get_relu_state_masks(lbs, ubs, A, i):
     relu_on_mask = (lbs[i] >= 0)
-    relu_off_mask = (~relu_on_mask) * (ubs[i] <= 0)
-    relu_lower_bound_mask = (~relu_on_mask) * (~relu_off_mask) * (A[i][0] >= 0)
-    relu_upper_bound_mask = (~relu_on_mask) * (~relu_off_mask) * (~relu_lower_bound_mask)
-    assert torch.all(torch.logical_xor(torch.logical_xor(torch.logical_xor(relu_on_mask, relu_off_mask), relu_lower_bound_mask), relu_upper_bound_mask))
+    relu_off_mask = (ubs[i] <= 0)
+    relu_lower_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (A[i][0] >= 0)
+    relu_upper_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)
+    assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask)
     return relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask
 
 def get_diagonals(weights, lbs, ubs, alphas, L):
@@ -88,7 +78,7 @@ def get_bias_lbs(A, lbs, ubs, L):
 
     return bias_lbs
 
-def init_Omega(weights, biases, D, L):
+def init_Omega(weights, biases, D):
     def Omega(end, start):
         assert end >= start
         if end == start: return torch.eye(biases[start].size(0))
@@ -98,7 +88,7 @@ def init_Omega(weights, biases, D, L):
 def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
     A, D = get_diagonals(weights, lbs, ubs, alphas, L)
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)
-    Omega = init_Omega(weights, biases, D, L)
+    Omega = init_Omega(weights, biases, D)
 
     a_crown = Omega(L, 1).matmul(weights[1])
     c_crown = sum([Omega(L, i).matmul(biases[i]) for i in range(1, L + 1)]) \
@@ -132,11 +122,10 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, 
         lbs2 = [lbs[layeri]] + lbs[layeri:]
         alphas2 = [None] + alphas[layeri:]
 
-        c = torch.zeros(weights2[1].size(1))
-        c[neuron] = (1 if direction == "lbs" else -1)
-
         a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
 
+        c = torch.zeros(weights2[1].size(1))
+        c[neuron] = (1 if direction == "lbs" else -1)
         weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
         biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
         
@@ -171,12 +160,12 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
         post_activation_lbs = pre_activation_lbs.clamp(min=0)
         post_activation_ubs = pre_activation_ubs.clamp(min=0)
 
-    layers = get_num_layers(t.model)
+    L = get_num_layers(t.model)
     params_dict = {"lbs" : {}, "ubs" : {}}
     for direction, layeri in _get_direction_layer_pairs(model):
         params_dict[direction][layeri] = {}
         for neuron in range(get_num_neurons(model, layeri)):
-            gamma, alphas = initialize_params(layers, weights)
+            gamma, alphas = initialize_params(weights, L)
             params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
     return lbs, ubs, params_dict, weights, biases
