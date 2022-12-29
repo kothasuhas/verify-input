@@ -97,11 +97,24 @@ def get_optimized_grb_result(m: gp.Model, c, inputs):
                 
     return m.getObjective().getValue()
 
-def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bss: List[List[float]]):
+
+class ApproximatedInputBound:
+    input_lbs: List[float]
+    input_ubs: List[float]
+    c: List[float]
+    b: float
+
+    def __init__(self, input_lbs, input_ubs, c, b) -> None:
+        self.input_lbs = input_lbs
+        self.input_ubs = input_ubs
+        self.c = c
+        self.b = b
+
+def plot(model: trainer.nn.Sequential, thresh: float, approximated_input_bounds: List[ApproximatedInputBound]):
     plt.rcParams["figure.figsize"] = (8,8)
 
     resolution = 1000
-    XX, YY = np.meshgrid(np.linspace(-2, 2, resolution), np.linspace(-2, 2, resolution))
+    XX, YY = np.meshgrid(np.linspace(-3, 3, resolution), np.linspace(-3, 3, resolution))
     X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
     y0 = model(X0)
     id = torch.max(y0[:,0], y0[:,1])
@@ -114,8 +127,8 @@ def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bs
     plt.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
     plt.axis("equal")
 
-    plt.xlim(-2, 2)
-    plt.ylim(-2, 2)
+    plt.xlim(-3, 3)
+    plt.ylim(-3, 3)
 
 
     t = np.linspace(0, 2 * math.pi, resolution)
@@ -123,18 +136,73 @@ def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bs
     plt.plot(-1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
     plt.plot( 1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
 
-    def abline(slope, intercept):
+    def abline(x_vals, asserted_y_vals, slope, intercept):
         """Plot a line from slope and intercept"""
         axes = plt.gca()
-        x_vals = np.array(axes.get_xlim())
+        y_vals = intercept + slope * x_vals
+        print(slope)
+
+        min_y_val = min(y_vals)
+        max_y_val = max(y_vals)
+        min_asserted_y_val = asserted_y_vals[0]
+        max_asserted_y_val = asserted_y_vals[1]
+        print(x_vals)
+        if slope < 0:
+            if max_y_val > max_asserted_y_val: # a
+                new_min_x_val = (max_asserted_y_val - intercept) / slope
+                assert new_min_x_val > x_vals[0]
+                plt.plot(np.array([x_vals[0], new_min_x_val]), np.array([max_asserted_y_val, max_asserted_y_val]), '--', color="black")
+                x_vals[0] = new_min_x_val
+            else:
+                assert max_asserted_y_val > max_y_val # b
+                plt.plot(np.array([x_vals[0], x_vals[0]]), np.array([max_y_val, max_asserted_y_val]), '--', color="black")
+            
+            if min_y_val < min_asserted_y_val: # c
+                new_max_x_val = (min_asserted_y_val - intercept) / slope
+                assert new_max_x_val < x_vals[1]
+                plt.plot(np.array([new_max_x_val, x_vals[1]]), np.array([min_asserted_y_val, min_asserted_y_val]), '--', color="black")
+                x_vals[1] = new_max_x_val
+            else:
+                assert min_asserted_y_val < min_y_val
+                plt.plot(np.array([x_vals[1], x_vals[1]]), np.array([min_asserted_y_val, min_y_val]), '--', color="black")
+        else:
+            assert slope > 0
+            if max_y_val > max_asserted_y_val: # a
+                new_max_x_val = (max_asserted_y_val - intercept) / slope
+                assert new_max_x_val < x_vals[1]
+                plt.plot(np.array([new_max_x_val, x_vals[1]]), np.array([max_asserted_y_val, max_asserted_y_val]), '--', color="black")
+                x_vals[1] = new_max_x_val
+            else:
+                assert max_asserted_y_val > max_y_val # b
+                plt.plot(np.array([x_vals[1], x_vals[1]]), np.array([max_asserted_y_val, max_y_val]), '--', color="black")
+            
+            if min_y_val < min_asserted_y_val: # c
+                new_min_x_val = (min_asserted_y_val - intercept) / slope
+                assert new_min_x_val > x_vals[0]
+                plt.plot(np.array([x_vals[0], new_min_x_val]), np.array([min_asserted_y_val, min_asserted_y_val]), '--', color="black")
+                x_vals[0] = new_min_x_val
+            else:
+                assert min_asserted_y_val < min_y_val # d
+                plt.plot(np.array([x_vals[0], x_vals[0]]), np.array([min_asserted_y_val, min_y_val]), '--', color="black")
+             
+
+
+        print(x_vals.dtype)
+
+        # assert min(y_vals) >= asserted_y_vals[0]
+        # assert max(y_vals) <= asserted_y_vals[1]
+
         y_vals = intercept + slope * x_vals
         plt.plot(x_vals, y_vals, '--', color="black")
+        # plt.plot(x_vals, x_vals * 0 + asserted_y_vals[0], "--", color="red")
+        # plt.plot(x_vals, x_vals * 0 + asserted_y_vals[1], "--", color="red")
 
-    for c, bs in list(zip(cs, bss)):
-        for b in bs:
-            abline(-c[0] / c[1], b / c[1])
-
-    print(cs, bss)
+    for approximated_input_bound in approximated_input_bounds:
+        c = approximated_input_bound.c
+        b = approximated_input_bound.b
+        x_vals = np.array([approximated_input_bound.input_lbs[0], approximated_input_bound.input_ubs[0]])
+        y_vals = np.array([approximated_input_bound.input_lbs[1], approximated_input_bound.input_ubs[1]])
+        abline(x_vals, y_vals, -c[0] / c[1], b / c[1])
 
     plt.draw()
     plt.pause(1)

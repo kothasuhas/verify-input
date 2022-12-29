@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import List
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -12,7 +12,7 @@ from tqdm import tqdm
 import core.trainer as trainer
 
 
-from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model
+from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model, ApproximatedInputBound
 
 class args():
     def __init__(self):
@@ -195,16 +195,32 @@ gp.Model()
 p = 0.9
 thresh = np.log(p / (1 - p))
 
-bss = []
 cs = [[-0.2326, -1.6094]]
+# cs = [torch.randn(2) for _ in range(5)]
 h = torch.Tensor([[-1], [0], [1]])
+
+class InputBranch:
+    lbs: List[torch.Tensor]
+    ubs: List[torch.Tensor]
+    params_dict: dict
+    
+    def __init__(self, lbs, ubs, params_dict) -> None:
+        self.lbs = lbs
+        self.ubs = ubs
+        self.params_dict = params_dict
+    
+
+split = 2
+approximated_input_bounds: List[ApproximatedInputBound] = []
 
 for c in tqdm(cs, desc="cs"):
     lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h, thresh=thresh)
-    bs = []
     pbar = tqdm(range(10), leave=False)
+
+    # plot(t.model, thresh, approximated_input_bounds)
+    last_b = -100
     for _ in pbar:
-        pbar.set_description(f"Best solution: {(-100.0 if len(bs) == 0 else bs[-1])}")
+        pbar.set_description(f"Best solution: {last_b}")
         for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
             neurons = get_num_neurons(t.model, layeri)
             for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
@@ -234,7 +250,8 @@ for c in tqdm(cs, desc="cs"):
 
         m, xs, zs = get_triangle_grb_model(t.model, ubs, lbs, h, thresh)
         
-        bs.append(get_optimized_grb_result(m, c, zs[0]))
-        tmp_bss = bss + [bs]
-        plot(t.model, thresh, cs, tmp_bss)
-    bss.append(bs)
+        b = get_optimized_grb_result(m, c, zs[0])
+        last_b = b
+        approximated_input_bounds.append(ApproximatedInputBound([-2.0, -2.0], [2.0, 2.0], c, b))
+        plot(t.model, thresh, approximated_input_bounds)
+input("Press any key to terminate")
