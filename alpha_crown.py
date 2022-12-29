@@ -1,5 +1,8 @@
 from typing import Tuple
 
+import warnings
+warnings.filterwarnings("ignore")
+
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
@@ -151,9 +154,6 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, 
         return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown
 
 
-p = 0.9
-thresh = np.log(p / (1 - p))
-
 def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
     return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
@@ -184,6 +184,16 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
             params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
     return lbs, ubs, params_dict, weights, biases
+
+import matplotlib.pyplot as plt
+plt.ion()
+plt.show()
+
+# Output the Gurobi-Text now
+gp.Model()
+
+p = 0.9
+thresh = np.log(p / (1 - p))
 
 bss = []
 cs = [[-0.2326, -1.6094]]
@@ -225,6 +235,6 @@ for c in tqdm(cs, desc="cs"):
         m, xs, zs = get_triangle_grb_model(t.model, ubs, lbs, h, thresh)
         
         bs.append(get_optimized_grb_result(m, c, zs[0]))
+        tmp_bss = bss + [bs]
+        plot(t.model, thresh, cs, tmp_bss)
     bss.append(bs)
-
-plot(t.model, thresh, cs, bss)

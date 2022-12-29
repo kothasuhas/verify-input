@@ -98,6 +98,8 @@ def get_optimized_grb_result(m: gp.Model, c, inputs):
     return m.getObjective().getValue()
 
 def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bss: List[List[float]]):
+    plt.rcParams["figure.figsize"] = (8,8)
+
     resolution = 1000
     XX, YY = np.meshgrid(np.linspace(-2, 2, resolution), np.linspace(-2, 2, resolution))
     X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
@@ -107,13 +109,14 @@ def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bs
     target_area = (y0[:,0] >= y0[:,2] + thresh).resize(resolution,resolution).data.numpy()
     bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
 
-    fig, ax = plt.subplots(figsize=(8,8))
-    ax.contour(XX,YY,target_area, colors="red", levels=[0,1])
-    ax.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
-    ax.axis("equal")
+
+    plt.contour(XX,YY,target_area, colors="red", levels=[0,1])
+    plt.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
+    plt.axis("equal")
 
     plt.xlim(-2, 2)
     plt.ylim(-2, 2)
+
 
     t = np.linspace(0, 2 * math.pi, resolution)
     radius = 0.5
@@ -133,4 +136,5 @@ def plot(model: trainer.nn.Sequential, thresh: float, cs: List[torch.Tensor], bs
 
     print(cs, bss)
 
-    plt.show()
+    plt.draw()
+    plt.pause(1)
