@@ -3,6 +3,7 @@ from typing import List
 import warnings
 warnings.filterwarnings("ignore")
 
+from copy import deepcopy
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
@@ -158,14 +159,14 @@ def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
     return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
 
-def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor, thresh: float):
-    num_layers = get_num_layers(model)
-    weights, biases = initialize_weights(model, h, thresh)
-
+def initialize_bounds(num_layers: int, weights: List[torch.Tensor], biases: List[torch.Tensor], input_lbs: torch.Tensor, input_ubs: torch.Tensor):
+    input_lbs = deepcopy(input_lbs)
+    input_ubs = deepcopy(input_ubs)
     lbs = [input_lbs]
     ubs = [input_ubs]
     post_activation_lbs = input_lbs
     post_activation_ubs = input_ubs
+    assert len(weights) == num_layers + 1, (len(weights), num_layers)
     for i in range(1, num_layers):
         w = weights[i]
         pre_activation_lbs = torch.where(w > 0, w, 0) @ post_activation_lbs + torch.where(w < 0, w, 0) @ post_activation_ubs + biases[i]
@@ -174,6 +175,14 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
         ubs.append(pre_activation_ubs)
         post_activation_lbs = pre_activation_lbs.clamp(min=0)
         post_activation_ubs = pre_activation_ubs.clamp(min=0)
+
+    return lbs, ubs
+        
+def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor, thresh: float):
+    num_layers = get_num_layers(model)
+    weights, biases = initialize_weights(model, h, thresh)
+
+    lbs, ubs = initialize_bounds(num_layers, weights, biases, input_lbs, input_ubs)
 
     layers = get_num_layers(t.model)
     params_dict = {"lbs" : {}, "ubs" : {}}
@@ -200,58 +209,117 @@ cs += [torch.randn(2) for _ in range(2)]
 h = torch.Tensor([[-1], [0], [1]])
 
 class InputBranch:
-    lbs: List[torch.Tensor]
-    ubs: List[torch.Tensor]
+    input_lbs: List[torch.Tensor]
+    input_ubs: List[torch.Tensor]
     params_dict: dict
+    resulting_lbs: List[torch.Tensor]
+    resulting_ubs: List[torch.Tensor]
+    weights: List[torch.Tensor]
+    biases: List[torch.Tensor]
     
-    def __init__(self, lbs, ubs, params_dict) -> None:
-        self.lbs = lbs
-        self.ubs = ubs
+    def __init__(self, input_lbs, input_ubs, params_dict, resulting_lbs, resulting_ubs, weights, biases) -> None:
+        self.input_lbs = input_lbs
+        self.input_ubs = input_ubs
         self.params_dict = params_dict
+        self.resulting_lbs = resulting_lbs
+        self.resulting_ubs = resulting_ubs
+        self.weights = weights
+        self.biases = biases
+
+    def _create_child(self, x_left: bool, y_left: bool):
+        x_input_size = self.input_ubs[0] - self.input_lbs[0]
+        y_input_size = self.input_ubs[1] - self.input_lbs[1]
+        new_x_lbs = self.input_lbs[0] if x_left else self.input_lbs[0] + x_input_size / 2
+        new_x_ubs = self.input_lbs[0] + x_input_size / 2 if x_left else self.input_ubs[0]
+        new_y_lbs = self.input_lbs[1] if y_left else self.input_lbs[1] + y_input_size / 2
+        new_y_ubs = self.input_lbs[1] + y_input_size / 2 if y_left else self.input_ubs[1]
+
+        new_input_lbs = torch.Tensor([new_x_lbs, new_y_lbs])
+        new_input_ubs = torch.Tensor([new_x_ubs, new_y_ubs])
+
+        new_resulting_lbs, new_resulting_ubs = initialize_bounds(len(self.weights) - 1, self.weights, self.biases, new_input_lbs, new_input_ubs)
+        new_resulting_lbs = [torch.max(x, y) for x, y in zip(new_resulting_lbs, self.resulting_lbs)]
+        new_resulting_ubs = [torch.min(x, y) for x, y in zip(new_resulting_ubs, self.resulting_ubs)]
+        new_branch = InputBranch(input_lbs=new_input_lbs, input_ubs=new_input_ubs, params_dict=deepcopy(self.params_dict), resulting_lbs=new_resulting_lbs, resulting_ubs=new_resulting_ubs, weights=self.weights, biases=self.biases)
+
+        return new_branch
+
+    def split(self):
+        topleft = self._create_child(True, False)
+        topright = self._create_child(False, False)
+        bottomleft = self._create_child(True, True)
+        bottomright = self._create_child(False, True)
+
+        return [topleft, topright, bottomleft, bottomright]
     
 
-split = 2
 approximated_input_bounds: List[ApproximatedInputBound] = []
 
-lbs, ubs, params_dict, weights, biases = initialize_all(model=t.model, input_lbs=torch.Tensor([-2.0, -2.0]), input_ubs=torch.Tensor([2.0, 2.0]), h=h, thresh=thresh)
+def get_initial_input_branch(model, h, thresh):
+    input_lbs = torch.Tensor([-2.0, -2.0])
+    input_ubs = torch.Tensor([2.0, 2.0])
+    resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=input_lbs, input_ubs=input_ubs, h=h, thresh=thresh)
 
-pbar = tqdm(range(10))
-last_b = []
-for _ in pbar:
-    pbar.set_description(f"Best solution to first bound: {last_b}")
-    for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
-        neurons = get_num_neurons(t.model, layeri)
-        for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
-            gamma = params_dict[direction][layeri][neuron]['gamma']
-            alphas = params_dict[direction][layeri][neuron]['alphas']
-            optim = torch.optim.SGD([
-                {'params': gamma, 'lr' : 0.0001}, 
-                {'params': alphas[1]},
-                {'params': alphas[2]}
-            ], lr=3.0, momentum=0.9, maximize=True)
-            if direction == "lbs" and (lbs[layeri][neuron] >= 0.0) and layeri > 0: continue
-            if direction == "ubs" and (ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
-            for _ in range(10):
-                optim.zero_grad()
-                loss = optimize_bound(weights, biases, gamma, alphas, lbs, ubs, 3, layeri, neuron, direction)
-                loss.backward()
-                optim.step()
+    initial_input_branch = InputBranch(input_lbs=input_lbs, input_ubs=input_ubs, params_dict=params_dict, resulting_lbs=resulting_lbs, resulting_ubs=resulting_ubs, weights=weights, biases=biases)
+    return initial_input_branch
 
-                with torch.no_grad():
-                    if direction == "lbs":
-                        lbs[layeri][neuron] = torch.max(lbs[layeri][neuron], loss.detach())
-                    else:
-                        ubs[layeri][neuron] = torch.min(ubs[layeri][neuron], -loss.detach())
-                    gamma.data = torch.clamp(gamma.data, min=0)
-                    alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
-                    alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
+branches = [get_initial_input_branch(t.model, h, thresh)]
+branches += branches[0].split()
 
-    m, xs, zs = get_triangle_grb_model(t.model, ubs, lbs, h, thresh)
-        
-    for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
-        b = get_optimized_grb_result(m, c, zs[0])
-        if i == 0:
-            last_b = b
-        approximated_input_bounds.append(ApproximatedInputBound([-2.0, -2.0], [2.0, 2.0], c, b))
-    plot(t.model, thresh, approximated_input_bounds)
+
+for branch in tqdm(branches, desc="Input Branches"):
+    tqdm.write(f"Current input branch area: {branch.input_lbs=}, {branch.input_ubs=}")
+
+    pbar = tqdm(range(3), leave=False)
+    last_b = []
+    abort = False
+    for _ in pbar:
+        if abort:
+            break
+        pbar.set_description(f"Best solution to first bound: {last_b}")
+        for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
+            if abort:
+                break
+            neurons = get_num_neurons(t.model, layeri)
+            for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
+                if abort:
+                    break
+                gamma = branch.params_dict[direction][layeri][neuron]['gamma']
+                alphas = branch.params_dict[direction][layeri][neuron]['alphas']
+                optim = torch.optim.SGD([
+                    {'params': gamma, 'lr' : 0.0001}, 
+                    {'params': alphas[1]},
+                    {'params': alphas[2]}
+                ], lr=3.0, momentum=0.9, maximize=True)
+                if direction == "lbs" and (branch.resulting_lbs[layeri][neuron] >= 0.0) and layeri > 0: continue
+                if direction == "ubs" and (branch.resulting_ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
+                for _ in range(10):
+                    optim.zero_grad()
+                    loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, 3, layeri, neuron, direction)
+                    loss.backward()
+                    optim.step()
+
+                    with torch.no_grad():
+                        if direction == "lbs":
+                            branch.resulting_lbs[layeri][neuron] = torch.max(branch.resulting_lbs[layeri][neuron], loss.detach())
+                        else:
+                            branch.resulting_ubs[layeri][neuron] = torch.min(branch.resulting_ubs[layeri][neuron], -loss.detach())
+                        if branch.resulting_lbs[layeri][neuron] > branch.resulting_ubs[layeri][neuron]:
+                            tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
+                            abort = True
+                            break
+                        gamma.data = torch.clamp(gamma.data, min=0)
+                        alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
+                        alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
+
+        if abort:
+            break
+        m, xs, zs = get_triangle_grb_model(t.model, branch.resulting_ubs, branch.resulting_lbs, h, thresh)
+            
+        for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
+            b = get_optimized_grb_result(m, c, zs[0])
+            if i == 0:
+                last_b = b
+            approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
+        plot(t.model, thresh, approximated_input_bounds)
 input("Press any key to terminate")
