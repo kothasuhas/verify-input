@@ -25,38 +25,28 @@ t = trainer.Trainer(args())
 t.load_model("test-weights.pt") # 200 200 3
 t.model.eval()
 
-def initialize_weights(model, h, thresh):
+def initialize_weights(model, H, d):
     L = get_num_layers(model)
-    weights = [None]
-    biases = [None]
-    
-    for i in range(1, L+1):
-        weights.append(model[2*i - 1].weight.detach())
-        biases.append(model[2*i - 1].bias.detach())
+    weights = [None] + [model[2*i - 1].weight.detach() for i in range(1, L+1)]
+    biases = [None] + [model[2*i - 1].bias.detach() for i in range(1, L+1)]
 
-    weights[L] = torch.matmul(h.transpose(0, 1), weights[L])
-    biases[L]  = torch.matmul(h.transpose(0, 1), biases[L]) + thresh
+    weights[L] = H.matmul(weights[L])
+    biases[L]  = H.matmul(biases[L]) + d
 
     return weights, biases
 
-def initialize_params(L, weights):
-    alphas = [None]
-
-    for i in range(1, L):
-        alphas.append(torch.full((weights[i].size(0),), 0.5))
-        alphas[-1].requires_grad = True
-
-    gamma = torch.full((1,), 0.01)
-    gamma.requires_grad = True
+def initialize_params(weights, L):
+    alphas = [None] + [torch.full((weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
+    gamma = torch.full((weights[-1].size(0), 1), 0.1, requires_grad=True)
 
     return gamma, alphas
 
 def _get_relu_state_masks(lbs, ubs, A, i):
     relu_on_mask = (lbs[i] >= 0)
-    relu_off_mask = (~relu_on_mask) * (ubs[i] <= 0)
-    relu_lower_bound_mask = (~relu_on_mask) * (~relu_off_mask) * (A[i][0] >= 0)
-    relu_upper_bound_mask = (~relu_on_mask) * (~relu_off_mask) * (~relu_lower_bound_mask)
-    assert torch.all(torch.logical_xor(torch.logical_xor(torch.logical_xor(relu_on_mask, relu_off_mask), relu_lower_bound_mask), relu_upper_bound_mask))
+    relu_off_mask = (ubs[i] <= 0)
+    relu_lower_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (A[i][0] >= 0)
+    relu_upper_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)
+    assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask)
     return relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask
 
 def get_diagonals(weights, lbs, ubs, alphas, L):
@@ -92,7 +82,7 @@ def get_bias_lbs(A, lbs, ubs, L):
 
     return bias_lbs
 
-def init_Omega(weights, biases, D, L):
+def init_Omega(weights, biases, D):
     def Omega(end, start):
         assert end >= start
         if end == start: return torch.eye(biases[start].size(0))
@@ -102,13 +92,13 @@ def init_Omega(weights, biases, D, L):
 def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
     A, D = get_diagonals(weights, lbs, ubs, alphas, L)
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)
-    Omega = init_Omega(weights, biases, D, L)
+    Omega = init_Omega(weights, biases, D)
 
     a_crown = Omega(L, 1).matmul(weights[1])
     c_crown = sum([Omega(L, i).matmul(biases[i]) for i in range(1, L + 1)]) \
             + sum([Omega(L, i).matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
 
-    return gamma * a_crown, gamma * c_crown
+    return (a_crown, c_crown) if gamma is None else (gamma.T.matmul(a_crown), gamma.T.matmul(c_crown))
 
 def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, direction):
     if layeri == 0:
@@ -136,15 +126,14 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, 
         lbs2 = [lbs[layeri]] + lbs[layeri:]
         alphas2 = [None] + alphas[layeri:]
 
-        c = torch.zeros(weights2[1].size(1))
-        c[neuron] = (1 if direction == "lbs" else -1)
-
         a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
 
+        c = torch.zeros(weights2[1].size(1))
+        c[neuron] = (1 if direction == "lbs" else -1)
         weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
         biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
         
-        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, 1.0, alphas1, lbs1, ubs1, L1)
+        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, None, alphas1, lbs1, ubs1, L1)
         
         a_crown = a_crown_full
         c_crown = c_crown_partial + c_crown_full
@@ -154,7 +143,6 @@ def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, 
 
         return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown
 
-
 def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
     return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
@@ -162,6 +150,7 @@ def _get_direction_layer_pairs(model: trainer.nn.Sequential):
 def initialize_bounds(num_layers: int, weights: List[torch.Tensor], biases: List[torch.Tensor], input_lbs: torch.Tensor, input_ubs: torch.Tensor):
     input_lbs = deepcopy(input_lbs)
     input_ubs = deepcopy(input_ubs)
+
     lbs = [input_lbs]
     ubs = [input_ubs]
     post_activation_lbs = input_lbs
@@ -177,19 +166,20 @@ def initialize_bounds(num_layers: int, weights: List[torch.Tensor], biases: List
         post_activation_ubs = pre_activation_ubs.clamp(min=0)
 
     return lbs, ubs
-        
-def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, h: torch.Tensor, thresh: float):
+
+def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, H: torch.Tensor, d: torch.Tensor):
     num_layers = get_num_layers(model)
-    weights, biases = initialize_weights(model, h, thresh)
+    weights, biases = initialize_weights(model, H, d)
 
     lbs, ubs = initialize_bounds(num_layers, weights, biases, input_lbs, input_ubs)
 
-    layers = get_num_layers(t.model)
+    L = get_num_layers(t.model)
+    
     params_dict = {"lbs" : {}, "ubs" : {}}
     for direction, layeri in _get_direction_layer_pairs(model):
         params_dict[direction][layeri] = {}
         for neuron in range(get_num_neurons(model, layeri)):
-            gamma, alphas = initialize_params(layers, weights)
+            gamma, alphas = initialize_params(weights, L)
             params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
 
     return lbs, ubs, params_dict, weights, biases
@@ -202,11 +192,12 @@ plt.show()
 gp.Model()
 
 p = 0.9
+H = torch.Tensor([[-1, 0, 1], [-1, 0, 1]])
 thresh = np.log(p / (1 - p))
+d = torch.Tensor([thresh, thresh])
 
 cs = [[-0.2326, -1.6094]]
 cs += [torch.randn(2) for _ in range(2)]
-h = torch.Tensor([[-1], [0], [1]])
 
 class InputBranch:
     input_lbs: List[torch.Tensor]
@@ -255,15 +246,15 @@ class InputBranch:
 
 approximated_input_bounds: List[ApproximatedInputBound] = []
 
-def get_initial_input_branch(model, h, thresh):
+def get_initial_input_branch(model, H, d):
     input_lbs = torch.Tensor([-2.0, -2.0])
     input_ubs = torch.Tensor([2.0, 2.0])
-    resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=input_lbs, input_ubs=input_ubs, h=h, thresh=thresh)
+    resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=input_lbs, input_ubs=input_ubs, H=H, d=d)
 
     initial_input_branch = InputBranch(input_lbs=input_lbs, input_ubs=input_ubs, params_dict=params_dict, resulting_lbs=resulting_lbs, resulting_ubs=resulting_ubs, weights=weights, biases=biases)
     return initial_input_branch
 
-branches = [get_initial_input_branch(t.model, h, thresh)]
+branches = [get_initial_input_branch(t.model, H, d)]
 branches += branches[0].split()
 
 
@@ -314,12 +305,12 @@ for branch in tqdm(branches, desc="Input Branches"):
 
         if abort:
             break
-        m, xs, zs = get_triangle_grb_model(t.model, branch.resulting_ubs, branch.resulting_lbs, h, thresh)
+        m, xs, zs = get_triangle_grb_model(t.model, branch.resulting_ubs, branch.resulting_lbs, H, d)
             
         for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
             b = get_optimized_grb_result(m, c, zs[0])
             if i == 0:
                 last_b = b
             approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
-        plot(t.model, thresh, approximated_input_bounds)
+        plot(t.model, H, d, approximated_input_bounds)
 input("Press any key to terminate")
