@@ -309,4 +309,6 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
 
     plt.draw()
     plt.pause(1)
-    plt.savefig(f"plots/step{plot_number+1}.png")
+
+    if save:
+        plt.savefig(f"plots/step{plot_number+1}.png")
