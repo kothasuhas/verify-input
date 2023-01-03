@@ -13,7 +13,7 @@ from tqdm import tqdm
 import core.trainer as trainer
 
 
-from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model, ApproximatedInputBound
+from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model, ApproximatedInputBound, InputBranch, initialize_bounds
 
 class args():
     def __init__(self):
@@ -147,26 +147,6 @@ def _get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
     return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
 
-def initialize_bounds(num_layers: int, weights: List[torch.Tensor], biases: List[torch.Tensor], input_lbs: torch.Tensor, input_ubs: torch.Tensor):
-    input_lbs = deepcopy(input_lbs)
-    input_ubs = deepcopy(input_ubs)
-
-    lbs = [input_lbs]
-    ubs = [input_ubs]
-    post_activation_lbs = input_lbs
-    post_activation_ubs = input_ubs
-    assert len(weights) == num_layers + 1, (len(weights), num_layers)
-    for i in range(1, num_layers):
-        w = weights[i]
-        pre_activation_lbs = torch.where(w > 0, w, 0) @ post_activation_lbs + torch.where(w < 0, w, 0) @ post_activation_ubs + biases[i]
-        pre_activation_ubs = torch.where(w > 0, w, 0) @ post_activation_ubs + torch.where(w < 0, w, 0) @ post_activation_lbs + biases[i]
-        lbs.append(pre_activation_lbs)
-        ubs.append(pre_activation_ubs)
-        post_activation_lbs = pre_activation_lbs.clamp(min=0)
-        post_activation_ubs = pre_activation_ubs.clamp(min=0)
-
-    return lbs, ubs
-
 def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, H: torch.Tensor, d: torch.Tensor):
     num_layers = get_num_layers(model)
     weights, biases = initialize_weights(model, H, d)
@@ -197,52 +177,8 @@ thresh = np.log(p / (1 - p))
 d = torch.Tensor([thresh, thresh])
 
 cs = [[-0.2326, -1.6094]]
-cs += [torch.randn(2) for _ in range(2)]
+cs += [torch.randn(2) for _ in range(20)]
 
-class InputBranch:
-    input_lbs: List[torch.Tensor]
-    input_ubs: List[torch.Tensor]
-    params_dict: dict
-    resulting_lbs: List[torch.Tensor]
-    resulting_ubs: List[torch.Tensor]
-    weights: List[torch.Tensor]
-    biases: List[torch.Tensor]
-    
-    def __init__(self, input_lbs, input_ubs, params_dict, resulting_lbs, resulting_ubs, weights, biases) -> None:
-        self.input_lbs = input_lbs
-        self.input_ubs = input_ubs
-        self.params_dict = params_dict
-        self.resulting_lbs = resulting_lbs
-        self.resulting_ubs = resulting_ubs
-        self.weights = weights
-        self.biases = biases
-
-    def _create_child(self, x_left: bool, y_left: bool):
-        x_input_size = self.input_ubs[0] - self.input_lbs[0]
-        y_input_size = self.input_ubs[1] - self.input_lbs[1]
-        new_x_lbs = self.input_lbs[0] if x_left else self.input_lbs[0] + x_input_size / 2
-        new_x_ubs = self.input_lbs[0] + x_input_size / 2 if x_left else self.input_ubs[0]
-        new_y_lbs = self.input_lbs[1] if y_left else self.input_lbs[1] + y_input_size / 2
-        new_y_ubs = self.input_lbs[1] + y_input_size / 2 if y_left else self.input_ubs[1]
-
-        new_input_lbs = torch.Tensor([new_x_lbs, new_y_lbs])
-        new_input_ubs = torch.Tensor([new_x_ubs, new_y_ubs])
-
-        new_resulting_lbs, new_resulting_ubs = initialize_bounds(len(self.weights) - 1, self.weights, self.biases, new_input_lbs, new_input_ubs)
-        new_resulting_lbs = [torch.max(x, y) for x, y in zip(new_resulting_lbs, self.resulting_lbs)]
-        new_resulting_ubs = [torch.min(x, y) for x, y in zip(new_resulting_ubs, self.resulting_ubs)]
-        new_branch = InputBranch(input_lbs=new_input_lbs, input_ubs=new_input_ubs, params_dict=deepcopy(self.params_dict), resulting_lbs=new_resulting_lbs, resulting_ubs=new_resulting_ubs, weights=self.weights, biases=self.biases)
-
-        return new_branch
-
-    def split(self):
-        topleft = self._create_child(True, False)
-        topright = self._create_child(False, False)
-        bottomleft = self._create_child(True, True)
-        bottomright = self._create_child(False, True)
-
-        return [topleft, topright, bottomleft, bottomright]
-    
 
 approximated_input_bounds: List[ApproximatedInputBound] = []
 
@@ -312,5 +248,5 @@ for branch in tqdm(branches, desc="Input Branches"):
             if i == 0:
                 last_b = b
             approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
-        plot(t.model, H, d, approximated_input_bounds)
+        plot(t.model, H, d, approximated_input_bounds, branch=branch)
 input("Press any key to terminate")
