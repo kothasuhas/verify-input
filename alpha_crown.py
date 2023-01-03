@@ -200,9 +200,11 @@ for branch in tqdm(branches, desc="Input Branches"):
     pbar = tqdm(range(3), leave=False)
     last_b = []
     abort = False
+    pending_approximated_input_bounds: List[ApproximatedInputBound] = []
     for _ in pbar:
         if abort:
             break
+        pending_approximated_input_bounds = []
         pbar.set_description(f"Best solution to first bound: {last_b}")
         for direction, layeri in tqdm(_get_direction_layer_pairs(t.model), desc="Directions & Layers", leave=False):
             if abort:
@@ -247,6 +249,7 @@ for branch in tqdm(branches, desc="Input Branches"):
             b = get_optimized_grb_result(m, c, zs[0])
             if i == 0:
                 last_b = b
-            approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
-        plot(t.model, H, d, approximated_input_bounds, branch=branch)
+            pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
+        plot(t.model, H, d, approximated_input_bounds + pending_approximated_input_bounds, branch=branch)
+    approximated_input_bounds += pending_approximated_input_bounds
 input("Press any key to terminate")
