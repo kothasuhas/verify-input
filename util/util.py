@@ -184,7 +184,7 @@ class InputBranch:
 
 
 def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approximated_input_bounds: List[ApproximatedInputBound], plot_number: int, save: bool, branch: InputBranch = None):
-    plt.rcParams["figure.figsize"] = (2 * (MAX_X_INPUT_VALUE - MIN_X_INPUT_VALUE), 2 * (MAX_Y_INPUT_VALUE - MIN_Y_INPUT_VALUE))
+    plt.rcParams["figure.figsize"] = (8, 8)
     plt.cla()
 
     resolution_x = 1000

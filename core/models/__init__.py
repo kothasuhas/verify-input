@@ -5,6 +5,7 @@ from .mlp import mlp
 from .i_featurizer import featurizer
 from .toy import toy
 from .vae import vae
+from .doubleintegrator_nonres import doubleintegrator_nonres
 
 def create_model(name, device):
     """
@@ -15,19 +16,5 @@ def create_model(name, device):
     Returns:
         torch.nn.Module.
     """
-    if name == 'convnet':
-        model = convnet()
-    elif name == 'mlp':
-        model = mlp()
-    elif name == 'featurizer':
-        model = featurizer()
-    elif name == 'toy':
-        model = toy()
-    elif name == 'vae':
-        model = vae()
-    else:
-        raise ValueError('Invalid model name {}!'.format(name))
-
-    model = model.to(device)
-    return model
+    return eval(name)().to(device)
 
