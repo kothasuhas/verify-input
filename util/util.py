@@ -12,13 +12,18 @@ import core.trainer as trainer
 
 import matplotlib.pyplot as plt
 
+MIN_X_INPUT_VALUE = -2
+MAX_X_INPUT_VALUE = 2
+MIN_Y_INPUT_VALUE = -2
+MAX_Y_INPUT_VALUE = 2
+
 
 def _get_grb_model(model: trainer.nn.Sequential, layers: int):
     m = gp.Model("verify_input")
     m.Params.OutputFlag = 0
 
     # Create variables
-    input = m.addMVar(shape=2, lb=-2, ub=2, name="input")
+    input = m.addMVar(shape=2, lb=[MIN_X_INPUT_VALUE, MIN_Y_INPUT_VALUE], ub=[MAX_X_INPUT_VALUE, MAX_Y_INPUT_VALUE], name="input")
     xs = []
     zs = [input]
     for l in range(layers-1):
@@ -178,33 +183,34 @@ class InputBranch:
     
 
 
-def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approximated_input_bounds: List[ApproximatedInputBound], branch: InputBranch = None):
-    plt.rcParams["figure.figsize"] = (8,8)
+def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approximated_input_bounds: List[ApproximatedInputBound], plot_number: int, save: bool, branch: InputBranch = None):
+    plt.rcParams["figure.figsize"] = (2 * (MAX_X_INPUT_VALUE - MIN_X_INPUT_VALUE), 2 * (MAX_Y_INPUT_VALUE - MIN_Y_INPUT_VALUE))
     plt.cla()
 
-    resolution = 1000
-    XX, YY = np.meshgrid(np.linspace(-2, 2, resolution), np.linspace(-2, 2, resolution))
+    resolution_x = 1000
+    resolution_y = 1000
+    remaining_input_area = np.ones((resolution_y, resolution_x))
+    XX, YY = np.meshgrid(np.linspace(MIN_X_INPUT_VALUE, MAX_X_INPUT_VALUE, resolution_x), np.linspace(MIN_Y_INPUT_VALUE, MAX_Y_INPUT_VALUE, resolution_y))
     X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
     y0 = model(X0)
     id = torch.max(y0[:,0], y0[:,1])
-    ZZ = (y0[:,2] - id).resize(resolution,resolution).data.numpy()
+    ZZ = (y0[:,2] - id).resize(resolution_y,resolution_x).data.numpy()
     output_constraints = torch.all(H.matmul(y0.unsqueeze(-1)).squeeze(-1) + d <= 0, dim=1)
-    target_area = (output_constraints).resize(resolution,resolution).data.numpy()
+    target_area = (output_constraints).resize(resolution_y,resolution_x).data.numpy()
     bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
-
 
     plt.contour(XX,YY,target_area, colors="red", levels=[0,1])
     plt.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
     plt.axis("equal")
 
-    plt.xlim(-2.1, 2.1)
-    plt.ylim(-2.1, 2.1)
+    plt.xlim(MIN_X_INPUT_VALUE - 0.1, MAX_X_INPUT_VALUE + 0.1)
+    plt.ylim(MIN_Y_INPUT_VALUE - 0.1, MAX_Y_INPUT_VALUE + 0.1)
 
 
-    t = np.linspace(0, 2 * math.pi, resolution)
-    radius = 0.5
-    plt.plot(-1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
-    plt.plot( 1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
+    # t = np.linspace(0, 2 * math.pi, resolution_x)
+    # radius = 0.5
+    # plt.plot(-1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
+    # plt.plot( 1 + radius * np.cos(t), 0 + radius * np.sin(t), color="blue")
 
     def abline(x_vals, asserted_y_vals, slope, intercept):
         """Plot a line from slope and intercept"""
@@ -220,8 +226,8 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
                 new_min_x_val = (max_asserted_y_val - intercept) / slope
                 assert new_min_x_val > x_vals[0]
                 # plt.plot(np.array([x_vals[0], new_min_x_val]), np.array([max_asserted_y_val, max_asserted_y_val]), '--', color="black")
-                x_vals[0] = new_min_x_val
-                # print("1a")
+                x_vals[0] = min(new_min_x_val, x_vals[1])
+                # print("1a" f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
                 assert max_asserted_y_val > max_y_val # b
                 # print("1b")
@@ -231,7 +237,7 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
                 new_max_x_val = (min_asserted_y_val - intercept) / slope
                 assert new_max_x_val < x_vals[1]
                 # plt.plot(np.array([new_max_x_val, x_vals[1]]), np.array([min_asserted_y_val, min_asserted_y_val]), '--', color="black")
-                x_vals[1] = new_max_x_val
+                x_vals[1] = max(new_max_x_val, x_vals[0])
                 # print("1c", f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
                 assert min_asserted_y_val < min_y_val
@@ -243,8 +249,8 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
                 new_max_x_val = (max_asserted_y_val - intercept) / slope
                 assert new_max_x_val < x_vals[1]
                 # plt.plot(np.array([new_max_x_val, x_vals[1]]), np.array([max_asserted_y_val, max_asserted_y_val]), '--', color="black")
-                x_vals[1] = new_max_x_val
-                # print("2a")
+                x_vals[1] = max(new_max_x_val, x_vals[0])
+                # print("2a" f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
                 assert max_asserted_y_val > max_y_val # b
                 # print("2b")
@@ -254,8 +260,8 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
                 new_min_x_val = (min_asserted_y_val - intercept) / slope
                 assert new_min_x_val > x_vals[0]
                 # plt.plot(np.array([x_vals[0], new_min_x_val]), np.array([min_asserted_y_val, min_asserted_y_val]), '--', color="black")
-                x_vals[0] = new_min_x_val
-                # print("2c")
+                x_vals[0] = min(new_min_x_val, x_vals[1])
+                # print("2c" f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
                 assert min_asserted_y_val < min_y_val # d
                 # print("2d")
@@ -263,7 +269,7 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
              
 
         y_vals = intercept + slope * x_vals
-        plt.plot(x_vals, y_vals, '--', color="black")
+        plt.fill(x_vals, y_vals, '--', color="red")
 
     for approximated_input_bound in approximated_input_bounds:
         c = approximated_input_bound.c
@@ -271,11 +277,36 @@ def plot(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approxi
         x_vals = np.array([approximated_input_bound.input_lbs[0], approximated_input_bound.input_ubs[0]])
         y_vals = np.array([approximated_input_bound.input_lbs[1], approximated_input_bound.input_ubs[1]])
         from copy import deepcopy
-        abline(deepcopy(x_vals), deepcopy(y_vals), -c[0] / c[1], b / c[1])
+        slope =  -c[0] / c[1]
+        intercept = b / c[1]
+        abline(deepcopy(x_vals), deepcopy(y_vals), slope, intercept)
+
+        branch_input_area_mask = np.zeros((resolution_y, resolution_x), dtype=np.bool8)
+        ticks_per_width_x = resolution_x / (MAX_X_INPUT_VALUE - MIN_X_INPUT_VALUE)
+        ticks_per_width_y = resolution_y / (MAX_Y_INPUT_VALUE - MIN_Y_INPUT_VALUE)
+        branch_x_lbs_in_ticks = math.ceil((approximated_input_bound.input_lbs[0] - MIN_X_INPUT_VALUE) * ticks_per_width_x)
+        branch_x_ubs_in_ticks = math.floor((approximated_input_bound.input_ubs[0] - MIN_X_INPUT_VALUE) * ticks_per_width_x)
+        branch_y_lbs_in_ticks = math.ceil((approximated_input_bound.input_lbs[1] - MIN_Y_INPUT_VALUE) * ticks_per_width_y)
+        branch_y_ubs_in_ticks = math.floor((approximated_input_bound.input_ubs[1] - MIN_Y_INPUT_VALUE) * ticks_per_width_y)
+        branch_input_area_mask[branch_y_lbs_in_ticks:branch_y_ubs_in_ticks+1, branch_x_lbs_in_ticks:branch_x_ubs_in_ticks+1] = 1
+
+        excluded_halfspace = np.zeros((resolution_y, resolution_x), dtype=np.bool8)
+        if c[1] > 0:
+            excluded_halfspace[intercept + XX * slope > YY] = 1
+        else:
+            assert c[1] < 0
+            excluded_halfspace[intercept + XX * slope < YY] = 1
+
+        remaining_input_area[branch_input_area_mask * excluded_halfspace] = 0
 
     if branch is not None:
         plt.plot(np.array([branch.input_lbs[0], branch.input_ubs[0], branch.input_ubs[0], branch.input_lbs[0], branch.input_lbs[0]]),
-                 np.array([branch.input_lbs[1], branch.input_lbs[1], branch.input_ubs[1], branch.input_ubs[1], branch.input_lbs[1]]), color="red")
+                    np.array([branch.input_lbs[1], branch.input_lbs[1], branch.input_ubs[1], branch.input_ubs[1], branch.input_lbs[1]]), color="black")
+
+    plt.contourf(XX, YY, remaining_input_area, hatches=["xxxx", ""], alpha=0, levels=[0, 0.5])
+
+    plt.title(f"Step {plot_number+1}")
 
     plt.draw()
     plt.pause(1)
+    plt.savefig(f"plots/step{plot_number+1}.png")

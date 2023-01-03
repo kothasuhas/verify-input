@@ -13,7 +13,8 @@ from tqdm import tqdm
 import core.trainer as trainer
 
 
-from util.util import get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model, ApproximatedInputBound, InputBranch, initialize_bounds
+from util.util import (get_num_layers, get_num_neurons, plot, get_optimized_grb_result, get_triangle_grb_model, ApproximatedInputBound, InputBranch, initialize_bounds,
+                       MIN_X_INPUT_VALUE, MAX_X_INPUT_VALUE, MIN_Y_INPUT_VALUE, MAX_Y_INPUT_VALUE)
 
 class args():
     def __init__(self):
@@ -172,19 +173,19 @@ plt.show()
 gp.Model()
 
 p = 0.9
-H = torch.Tensor([[-1, 0, 1], [-1, 0, 1]])
+H = torch.Tensor([[-1, -1, 1], [-1, -1, 1]])
 thresh = np.log(p / (1 - p))
 d = torch.Tensor([thresh, thresh])
 
 cs = [[-0.2326, -1.6094]]
-cs += [torch.randn(2) for _ in range(20)]
+cs += [np.random.normal(size=2) for _ in range(20)]
 
 
 approximated_input_bounds: List[ApproximatedInputBound] = []
 
 def get_initial_input_branch(model, H, d):
-    input_lbs = torch.Tensor([-2.0, -2.0])
-    input_ubs = torch.Tensor([2.0, 2.0])
+    input_lbs = torch.Tensor([MIN_X_INPUT_VALUE, MIN_Y_INPUT_VALUE])
+    input_ubs = torch.Tensor([MAX_X_INPUT_VALUE, MAX_Y_INPUT_VALUE])
     resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=input_lbs, input_ubs=input_ubs, H=H, d=d)
 
     initial_input_branch = InputBranch(input_lbs=input_lbs, input_ubs=input_ubs, params_dict=params_dict, resulting_lbs=resulting_lbs, resulting_ubs=resulting_ubs, weights=weights, biases=biases)
@@ -193,11 +194,9 @@ def get_initial_input_branch(model, H, d):
 branches = [get_initial_input_branch(t.model, H, d)]
 branches += branches[0].split()
 
-
+plot_number = 0
 for branch in tqdm(branches, desc="Input Branches"):
-    tqdm.write(f"Current input branch area: {branch.input_lbs=}, {branch.input_ubs=}")
-
-    pbar = tqdm(range(3), leave=False)
+    pbar = tqdm(range(5), leave=False)
     last_b = []
     abort = False
     pending_approximated_input_bounds: List[ApproximatedInputBound] = []
@@ -250,6 +249,8 @@ for branch in tqdm(branches, desc="Input Branches"):
             if i == 0:
                 last_b = b
             pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
-        plot(t.model, H, d, approximated_input_bounds + pending_approximated_input_bounds, branch=branch)
+        plot(t.model, H, d, approximated_input_bounds + pending_approximated_input_bounds, plot_number=plot_number, save=True, branch=branch)
+        plot_number += 1
     approximated_input_bounds += pending_approximated_input_bounds
-input("Press any key to terminate")
+plot(t.model, H, d, approximated_input_bounds, plot_number=plot_number, save=True)
+input("Press enter to terminate")
