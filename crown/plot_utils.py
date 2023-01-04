@@ -9,7 +9,7 @@ from torch.autograd import Variable
 import core.trainer as trainer
 import matplotlib.pyplot as plt
 
-def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approximated_input_bounds, input_lbs, input_ubs, plot_number: int, save: bool, branch = None):
+def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approximated_input_bounds, input_lbs, input_ubs, plot_number: int, save: bool, branch = None, contour=True):
     plt.rcParams["figure.figsize"] = (8, 8)
     plt.cla()
 
@@ -27,13 +27,13 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
     X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
     y0 = model(X0)
     id = torch.max(y0[:,0], y0[:,1])
-    ZZ = (y0[:,2] - id).resize(resolution_y,resolution_x).data.numpy()
+    if contour: ZZ = (y0[:,2] - id).resize(resolution_y,resolution_x).data.numpy()
     output_constraints = torch.all(H.matmul(y0.unsqueeze(-1)).squeeze(-1) + d <= 0, dim=1)
     target_area = (output_constraints).resize(resolution_y,resolution_x).data.numpy()
-    bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
+    if contour: bound = max(np.abs(np.min(ZZ)), np.max(ZZ)) + 1
 
     plt.contour(XX,YY,target_area, colors="red", levels=[0,1])
-    plt.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
+    if contour: plt.contourf(XX,YY,-ZZ, cmap="coolwarm", levels=np.linspace(-bound, bound, 30))
     plt.axis("equal")
 
     plt.xlim(MIN_X_INPUT_VALUE - 0.1, MAX_X_INPUT_VALUE + 0.1)

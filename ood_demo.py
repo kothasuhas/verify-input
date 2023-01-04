@@ -1,6 +1,9 @@
 import torch
 import numpy as np
 from crown.driver import optimize
+from crown.model_utils import load_model
+
+model = load_model("toy", "test-weights.pt")
 
 p = 0.9
 H = torch.Tensor([[-1, -1, 1], [-1, -1, 1]])
@@ -14,4 +17,4 @@ input_ubs = [2.0, 2.0]
 
 num_iters = 5
 
-optimize(H, d, cs, input_lbs, input_ubs, num_iters)
+optimize(model, H, d, cs, input_lbs, input_ubs, num_iters)

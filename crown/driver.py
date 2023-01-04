@@ -15,9 +15,7 @@ from .lp import get_optimized_grb_result, get_triangle_grb_model
 from .crown import initialize_all, optimize_bound, ApproximatedInputBound, InputBranch
 from .plot_utils import plot2d
 
-def optimize(H, d, cs, input_lbs, input_ubs, num_iters, perform_branching=True):
-    model = load_model("toy", "test-weights.pt")
-
+def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
     plt.ion()
     plt.show()
 
@@ -90,8 +88,8 @@ def optimize(H, d, cs, input_lbs, input_ubs, num_iters, perform_branching=True):
                 if i == 0:
                     last_b = b
                 pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
-            plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch)
+            plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
             plot_number += 1
         approximated_input_bounds += pending_approximated_input_bounds
-    plot2d(model, H, d, approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True)
+    plot2d(model, H, d, approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
     input("Press enter to terminate")
