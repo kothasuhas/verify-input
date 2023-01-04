@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 import core.trainer as trainer
 
-from util.util import plot, get_optimal_grb_model, get_optimized_grb_result
+from crown.lp import plot, get_optimal_grb_model, get_optimized_grb_result
 
 
 def optimal_grb(model: trainer.nn.Sequential, h: torch.Tensor, thresh: float, cs: List[torch.Tensor]):
