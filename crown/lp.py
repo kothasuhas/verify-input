@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import gurobipy as gp
@@ -72,13 +72,15 @@ def get_triangle_grb_model(model: trainer.nn.Sequential, ubs, lbs, H: torch.Tens
 
     return m, xs, zs
 
-def get_optimized_grb_result(m: gp.Model, c, inputs):
+def get_optimized_grb_result(m: gp.Model, c, inputs) -> Optional[float]:
     m.setObjective(c[0] * inputs[0] + c[1] * inputs[1], GRB.MINIMIZE)
     m.optimize()
-    if m.status != GRB.OPTIMAL:
+    if m.status == GRB.OPTIMAL:
+        return m.getObjective().getValue()
+    elif m.status == GRB.INFEASIBLE:
+        return None
+    else:
         sc = gp.StatusConstClass
         d = {sc.__dict__[k]: k for k in sc.__dict__.keys() if k[0] >= 'A' and k[0] <= 'Z'}
         print(f"Gurobi returned a non optimal result. Error description: {d[m.status]}. Aborting.")
         exit()
-                
-    return m.getObjective().getValue()

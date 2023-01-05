@@ -3,6 +3,7 @@ from typing import List
 import warnings
 warnings.filterwarnings("ignore")
 
+from copy import deepcopy
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
@@ -34,6 +35,8 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
         branches += branches[0].split()
 
     plot_number = 0
+    num_layers = get_num_layers(model)
+    assert num_layers == 3, "Proceed with caution, models with more/less than 3 layers were not tested so far"
     for branch in tqdm(branches, desc="Input Branches"):
         pbar = tqdm(range(num_iters), leave=False)
         last_b = []
@@ -58,11 +61,12 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
                         {'params': alphas[1]},
                         {'params': alphas[2]}
                     ], lr=3.0, momentum=0.9, maximize=True)
+                    assert len(alphas) == 3  # othwerwise, we probably need to optimize them as well
                     if direction == "lbs" and (branch.resulting_lbs[layeri][neuron] >= 0.0) and layeri > 0: continue
                     if direction == "ubs" and (branch.resulting_ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
                     for _ in range(10):
                         optim.zero_grad()
-                        loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, 3, layeri, neuron, direction)
+                        loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, neuron, direction)
                         loss.backward()
                         optim.step()
 
@@ -83,11 +87,21 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
                 break
             m, xs, zs = get_triangle_grb_model(model, branch.resulting_ubs, branch.resulting_lbs, H, d, input_lbs, input_ubs)
                 
+            gurobi_infeasible_counter = 0
             for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
                 b = get_optimized_grb_result(m, c, zs[0])
+                if not b:
+                    gurobi_infeasible_counter += 1
+                    continue
                 if i == 0:
                     last_b = b
                 pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
+            if gurobi_infeasible_counter > 0:
+                tqdm.write("[WARNING] Gurobi determined that the bounds are infeasible. That's either a bug or this input region as no intersection with the target area")
+                assert gurobi_infeasible_counter == len(cs)
+                abort = True
+                break
+
             plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
             plot_number += 1
         approximated_input_bounds += pending_approximated_input_bounds
