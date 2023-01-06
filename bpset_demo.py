@@ -16,7 +16,7 @@ d = torch.Tensor([
         -0.25
     ])
 
-model, H, d = load_model("doubleintegrator_nonres", "doubleintegrator.pt", H, d)
+model, H, d = load_model("doubleintegrator_nonres", "doubleintegrator.pt", H, d, stack_n_times=3)
 
 cs = [np.random.normal(size=2) for _ in range(20)]
 input_lbs = [-5.0, -5.0]

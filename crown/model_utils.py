@@ -25,7 +25,7 @@ def _encode_constraints(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.
 
     return model, H, d
 
-def load_model(model_name, file_name, H: torch.Tensor, d: torch.Tensor) -> trainer.nn.Sequential:
+def load_model(model_name, file_name, H: torch.Tensor, d: torch.Tensor, stack_n_times: int = 1) -> trainer.nn.Sequential:
     class args():
         def __init__(self):
             self.model = model_name
@@ -36,7 +36,8 @@ def load_model(model_name, file_name, H: torch.Tensor, d: torch.Tensor) -> train
     t.load_model(file_name)
     t.model.eval()
 
-    model = t.model
+    model = t.model * stack_n_times
+
     if H.size(0) > 1:
         model, H, d = _encode_constraints(model, H, d)
     return model, H, d
