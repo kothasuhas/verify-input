@@ -36,7 +36,6 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
 
     plot_number = 0
     num_layers = get_num_layers(model)
-    assert num_layers == 3, "Proceed with caution, models with more/less than 3 layers were not tested so far"
     for branch in tqdm(branches, desc="Input Branches"):
         pbar = tqdm(range(num_iters), leave=False)
         last_b = []
@@ -58,10 +57,8 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
                     alphas = branch.params_dict[direction][layeri][neuron]['alphas']
                     optim = torch.optim.SGD([
                         {'params': gamma, 'lr' : 0.0001}, 
-                        {'params': alphas[1]},
-                        {'params': alphas[2]}
+                        {'params': alphas[1:]},
                     ], lr=3.0, momentum=0.9, maximize=True)
-                    assert len(alphas) == 3  # othwerwise, we probably need to optimize them as well
                     if direction == "lbs" and (branch.resulting_lbs[layeri][neuron] >= 0.0) and layeri > 0: continue
                     if direction == "ubs" and (branch.resulting_ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
                     for _ in range(10):
@@ -80,8 +77,8 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
                                 abort = True
                                 break
                             gamma.data = torch.clamp(gamma.data, min=0)
-                            alphas[1].data = alphas[1].data.clamp(min=0.0, max=1.0)
-                            alphas[2].data = alphas[2].data.clamp(min=0.0, max=1.0)
+                            for i in range(1, len(alphas)):
+                                alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
 
             if abort:
                 break

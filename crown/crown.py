@@ -65,6 +65,7 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
 def _get_relu_state_masks(lbs, ubs, A, i):
     relu_on_mask = (lbs[i] >= 0)
     relu_off_mask = (ubs[i] <= 0)
+    assert A[i].size(0) == 1
     relu_lower_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (A[i][0] >= 0)
     relu_upper_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)
     assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask)
