@@ -1,4 +1,4 @@
-from typing import List
+from typing import Tuple, List, Optional
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -62,40 +62,78 @@ def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_
 
     return lbs, ubs, params_dict, weights, biases
 
-def _get_relu_state_masks(lbs, ubs, A, i):
-    relu_on_mask = (lbs[i] >= 0)
-    relu_off_mask = (ubs[i] <= 0)
-    assert A[i].size(0) == 1
-    relu_lower_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (A[i][0] >= 0)
-    relu_upper_bound_mask = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)
+def _get_relu_state_masks(
+    lbs: List[torch.Tensor],  # [(feat)]
+    ubs: List[torch.Tensor],  # [(feat)]
+    A: List[Optional[torch.Tensor]],  # [(feat_outputLayer==1, feat)]
+    layeri: int
+) -> Tuple[
+    torch.Tensor,  # (feat)
+    torch.Tensor,  # (feat)
+    torch.Tensor,  # (feat)
+    torch.Tensor,  # (feat)
+]:
+    relu_on_mask = (lbs[layeri] >= 0)  # (feat)
+    relu_off_mask = (ubs[layeri] <= 0)  # (feat)
+    a = A[layeri]
+    assert a.size(0) == 1
+    assert a is not None
+    relu_lower_bound_mask: torch.Tensor = (~relu_on_mask) & (~relu_off_mask) & (a[0] >= 0)  # (feat)
+    relu_upper_bound_mask: torch.Tensor = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)  # (feat)
+    assert relu_on_mask.dim() == 1
+    assert relu_off_mask.dim() == 1
+    assert relu_lower_bound_mask.dim() == 1
+    assert relu_upper_bound_mask.dim() == 1
+    assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask])) == 1
     assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask)
     return relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask
 
-def get_diagonals(weights, lbs, ubs, alphas, L):
-    A = [None for _ in range(L)]
-    D = [None for _ in range(L)]
+def get_diagonals(
+    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    lbs: List[torch.Tensor],  # [(feat)]
+    ubs: List[torch.Tensor],  # [(feat)]
+    alphas: List[Optional[torch.Tensor]],  # [(feat)]
+    L: int
+) -> Tuple[
+    List[Optional[torch.Tensor]],  # [(feat_outputLayer==1, feat)]
+    List[Optional[torch.Tensor]],  # [(feat, feat)]
+]:
+    A: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(feat_outputLayer==1, feat)]
+    D: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(feat, feat)]
     assert len(weights) == L + 1
-    for i in range(L-1, 0, -1):  # 1, ..., L-1  -> entry L not used
-        if i == L-1:
-            A[i] = weights[L]
+    for layeri in range(L-1, 0, -1):  # L-1, ..., 1
+        if layeri == L-1:
+            A[layeri] = weights[L]
         else:
-            A[i] = A[i+1].matmul(D[i+1]).matmul(weights[i+1])
+            A[layeri] = A[layeri+1].matmul(D[layeri+1]).matmul(weights[layeri+1])
+        assert A[layeri].dim() == 2
+        assert A[layeri].size(0) == 1
 
-        D[i] = torch.zeros(weights[i].size(0), weights[i].size(0))
+        num_feat = weights[layeri].size(0)
+        D[layeri] = torch.zeros(num_feat, num_feat)
 
-        relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, i)
-        D[i][relu_on_mask, relu_on_mask] = 1
-        D[i][relu_off_mask,relu_off_mask] = 0
-        D[i][relu_lower_bound_mask, relu_lower_bound_mask] = alphas[i][relu_lower_bound_mask]
-        D[i][relu_upper_bound_mask, relu_upper_bound_mask] = (ubs[i] / (ubs[i] - lbs[i]))[relu_upper_bound_mask]
+        relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, layeri)
+        assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask, ubs[layeri], lbs[layeri]]))  # all (feat)
+        assert D[layeri].shape == (relu_on_mask.size(0), relu_on_mask.size(0))
+        D[layeri][relu_on_mask, relu_on_mask] = 1
+        D[layeri][relu_off_mask,relu_off_mask] = 0
+        D[layeri][relu_lower_bound_mask, relu_lower_bound_mask] = alphas[layeri][relu_lower_bound_mask]
+        D[layeri][relu_upper_bound_mask, relu_upper_bound_mask] = (ubs[layeri] / (ubs[layeri] - lbs[layeri]))[relu_upper_bound_mask]
 
     return A, D
 
-def get_bias_lbs(A, lbs, ubs, L):
-    bias_lbs = [None]
+def get_bias_lbs(
+    A: List[Optional[torch.Tensor]],  # [(feat_outputLayer==1, feat)]
+    lbs: List[torch.Tensor],  # [(feat)]
+    ubs: List[torch.Tensor],  # [(feat)]
+    L: int
+) -> List[Optional[torch.Tensor]]:  # [(feat)]
+    bias_lbs: List[Optional[torch.Tensor]] = [None]  # [(feat)]
 
     for i in range(1, L):
-        bias_lbs.append(torch.zeros(A[i].size(1)))
+        assert A[i] is not None
+        num_feat = A[i].size(1)
+        bias_lbs.append(torch.zeros(num_feat))
         relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, i)
         bias_lbs[i][relu_on_mask] = 0
         bias_lbs[i][relu_off_mask] = 0
@@ -111,9 +149,17 @@ def init_Omega(weights, biases, D):
         return weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start))
     return Omega
 
-def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
-    A, D = get_diagonals(weights, lbs, ubs, alphas, L)
-    bias_lbs = get_bias_lbs(A, lbs, ubs, L)
+def get_crown_bounds(
+    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]],  # [(feat)]
+    gamma: torch.Tensor,  # (num_constr, 1)
+    alphas: List[Optional[torch.Tensor]],  # [(feat)]
+    lbs: List[torch.Tensor],  # [(feat)]
+    ubs: List[torch.Tensor],  # [(feat)]
+    L: int,
+):
+    A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(feat_outputLayer==1, feat)], [(feat, feat)]
+    bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(feat)]
     Omega = init_Omega(weights, biases, D)
 
     a_crown = Omega(L, 1).matmul(weights[1])
@@ -122,7 +168,45 @@ def get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L):
 
     return (a_crown, c_crown) if gamma is None else (gamma.T.matmul(a_crown), gamma.T.matmul(c_crown))
 
-def optimize_bound(weights, biases, gamma, alphas, lbs, ubs, L, layeri, neuron, direction):
+def optimize_bound(
+    weights: List[Optional[torch.Tensor]],
+    biases: List[Optional[torch.Tensor]],
+    gamma: torch.Tensor,
+    alphas: List[Optional[torch.Tensor]],
+    lbs: List[torch.Tensor],
+    ubs: List[torch.Tensor],
+    L: int,
+    layeri: int,
+    neuron: int,
+    direction: str,
+):
+    assert weights[0] is None
+    for w in weights[1:]:
+        assert w is not None
+        assert w.dim() == 2  # (feat_out, feat_in)
+
+    assert biases[0] is None
+    for b in biases[1:]:
+        assert b is not None
+        assert b.dim() == 1  # (feat)
+
+    assert gamma is not None
+    assert gamma.dim() == 2  # (num_constr, 1)
+
+    assert alphas[0] is None
+    for a in alphas[1:]:
+        assert a is not None
+        assert a.dim() == 1  # (feat)
+
+    for l in lbs:
+        assert l is not None
+        assert l.dim() == 1  # (feat)
+    
+    for u in ubs:
+        assert u is not None
+        assert u.dim() == 1  # (feat)
+    
+    
     if layeri == 0:
         c = torch.zeros(weights[1].size(1))
         c[neuron] = (1 if direction == "lbs" else -1)
