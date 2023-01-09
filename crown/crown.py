@@ -1,4 +1,4 @@
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Dict, Optional
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -9,28 +9,52 @@ import torch
 import core.trainer as trainer
 from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs
 
-def initialize_weights(model, H, d):
+def initialize_weights(
+    model: trainer.nn.Sequential,
+    H: torch.Tensor,  # (numConstr==1, 1)
+    d: torch.Tensor,  # (numConstr==1)
+) -> Tuple[
+    List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    List[Optional[torch.Tensor]],  # [(feat)]
+]:
     L = get_num_layers(model)
-    weights = [None] + [model[2*i - 1].weight.detach() for i in range(1, L+1)]
-    biases = [None] + [model[2*i - 1].bias.detach() for i in range(1, L+1)]
+    weights: List[Optional[torch.Tensor]] = [None] + [model[2*i - 1].weight.detach() for i in range(1, L+1)]  # [(feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]] = [None] + [model[2*i - 1].bias.detach() for i in range(1, L+1)]  # [(feat)]
 
-    weights[L] = H.matmul(weights[L])
-    biases[L]  = H.matmul(biases[L]) + d
+    assert weights[L].size(0) == 1
+    weights[L] = H.matmul(weights[L])  # (1, feat_in)
+    biases[L]  = H.matmul(biases[L]) + d  # (1)
 
     return weights, biases
 
-def initialize_params(weights, L):
+def initialize_params(
+    weights: List[Optional[torch.Tensor]], # [(feat_out, feat_in)]
+    L: int
+) -> Tuple[
+    torch.Tensor,  # (1, 1)
+    List[Optional[torch.Tensor]],  # [(feat)]
+]:
     alphas = [None] + [torch.full((weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
+    assert weights[-1].size(0) == 1
     gamma = torch.full((weights[-1].size(0), 1), 0.1, requires_grad=True)
 
     return gamma, alphas
 
-def initialize_bounds(num_layers: int, weights: List[torch.Tensor], biases: List[torch.Tensor], input_lbs: torch.Tensor, input_ubs: torch.Tensor):
+def initialize_bounds(
+    num_layers: int,
+    weights: List[torch.Tensor],  # (feat_out, feat_in)
+    biases: List[torch.Tensor],  # [(feat)]
+    input_lbs: torch.Tensor,  # (featInputLayer)
+    input_ubs: torch.Tensor,  # (featInputLayer)
+) -> Tuple[
+    List[torch.Tensor],  # (feat)
+    List[torch.Tensor],  # (feat)
+]:
     input_lbs = deepcopy(input_lbs)
     input_ubs = deepcopy(input_ubs)
 
-    lbs = [input_lbs]
-    ubs = [input_ubs]
+    lbs: List[torch.Tensor] = [input_lbs]  # (feat)
+    ubs: List[torch.Tensor] = [input_ubs]  # (feat)
     post_activation_lbs = input_lbs
     post_activation_ubs = input_ubs
     assert len(weights) == num_layers + 1, (len(weights), num_layers)
@@ -45,7 +69,19 @@ def initialize_bounds(num_layers: int, weights: List[torch.Tensor], biases: List
 
     return lbs, ubs
 
-def initialize_all(model: trainer.nn.Sequential, input_lbs: torch.Tensor, input_ubs: torch.Tensor, H: torch.Tensor, d: torch.Tensor):
+def initialize_all(
+    model: trainer.nn.Sequential,
+    input_lbs: torch.Tensor,  # (featInputLayer)
+    input_ubs: torch.Tensor,  # (featInputLayer)
+    H: torch.Tensor,  # (numConstr==1, 1)
+    d: torch.Tensor,  # (numConstr==1)
+) -> Tuple[
+    List[torch.Tensor],  # [(feat)]
+    List[torch.Tensor],  # [(feat)]
+    Dict,
+    List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    List[Optional[torch.Tensor]],  # [(feat)]
+]:
     num_layers = get_num_layers(model)
     weights, biases = initialize_weights(model, H, d)
 
@@ -142,7 +178,12 @@ def get_bias_lbs(
 
     return bias_lbs
 
-def get_Omega(weights, biases, D, L):
+def get_Omega(
+    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]],  # [(feat)]
+    D: List[Optional[torch.Tensor]],  # [(feat, feat)]
+    L: int
+) -> List[Optional[torch.Tensor]]: # [(feat_outputLayer==1, feat)]
     omegas = [None for _ in range(L+1)]
     for layeri in range(L, 0, -1):
         if layeri == L:
@@ -154,102 +195,115 @@ def get_Omega(weights, biases, D, L):
 def get_crown_bounds(
     weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]],  # [(feat)]
-    gamma: torch.Tensor,  # (num_constr, 1)
+    gamma: torch.Tensor,  # (numConstr==1, 1)
     alphas: List[Optional[torch.Tensor]],  # [(feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
     L: int,
-):
+) -> Tuple[
+    torch.Tensor,  # (feat_outputLayer==1, featInputLayer)
+    torch.Tensor,  # (1)
+]:
     A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(feat_outputLayer==1, feat)], [(feat, feat)]
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(feat)]
-    Omega = get_Omega(weights, biases, D, L)
+    Omega = get_Omega(weights, biases, D, L)  # [(feat_outputLayer==1, feat)]
 
-    a_crown = Omega[1].matmul(weights[1])
-    c_crown = sum([Omega[i].matmul(biases[i]) for i in range(1, L + 1)]) \
-            + sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
+    a_crown = Omega[1].matmul(weights[1])  # (feat_outputLayer==1, featInputLayer)
+    sum_biases: torch.Tensor = sum([Omega[i].matmul(biases[i]) for i in range(1, L + 1)])  # (1)
+    sum_bias_lbs: torch.Tensor = sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])  # (1)
+    c_crown = sum_biases + sum_bias_lbs  # (1)
 
-    return (a_crown, c_crown) if gamma is None else (gamma.T.matmul(a_crown), gamma.T.matmul(c_crown))
+    if gamma is not None:
+        a_crown = gamma.T.matmul(a_crown)  # (1, featInputLayer)
+        c_crown = gamma.T.matmul(c_crown)  # (1)
+    return (a_crown, c_crown)
 
 def optimize_bound(
-    weights: List[Optional[torch.Tensor]],
-    biases: List[Optional[torch.Tensor]],
-    gamma: torch.Tensor,
-    alphas: List[Optional[torch.Tensor]],
-    lbs: List[torch.Tensor],
-    ubs: List[torch.Tensor],
+    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]],  # [(feat)]
+    gamma: torch.Tensor,  # (num_constr==1, 1)
+    alphas: List[Optional[torch.Tensor]],  # [(feat)]
+    lbs: List[torch.Tensor],  # [(feat)]
+    ubs: List[torch.Tensor],  # [(feat)]
     L: int,
     layeri: int,
     neuron: int,
     direction: str,
-):
+) -> torch.Tensor:  # (1)
     assert weights[0] is None
     for w in weights[1:]:
         assert w is not None
-        assert w.dim() == 2  # (feat_out, feat_in)
+        assert w.dim() == 2
 
     assert biases[0] is None
     for b in biases[1:]:
         assert b is not None
-        assert b.dim() == 1  # (feat)
+        assert b.dim() == 1
 
     assert gamma is not None
-    assert gamma.dim() == 2  # (num_constr, 1)
+    assert gamma.dim() == 2
+    assert gamma.size(0) == 1
+    assert gamma.size(1) == 1
 
     assert alphas[0] is None
     for a in alphas[1:]:
         assert a is not None
-        assert a.dim() == 1  # (feat)
+        assert a.dim() == 1
 
     for l in lbs:
         assert l is not None
-        assert l.dim() == 1  # (feat)
+        assert l.dim() == 1
     
     for u in ubs:
         assert u is not None
-        assert u.dim() == 1  # (feat)
+        assert u.dim() == 1
     
     
     if layeri == 0:
         c = torch.zeros(weights[1].size(1))
         c[neuron] = (1 if direction == "lbs" else -1)
         a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L)
-        a_crown += c
+        a_crown += c  # (1, featInputLayer)
 
-        x_0 = (ubs[0] + lbs[0]) / 2.0
-        eps = (ubs[0] - lbs[0]) / 2.0
+        x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
+        eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
 
-        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown 
+        return -torch.abs(a_crown).matmul(eps) + a_crown.matmul(x_0) + c_crown  # (1)
     else:
         L1 = layeri
-        weights1 = weights[:layeri+1]
-        biases1  = biases[:layeri+1]
-        ubs1 = ubs[:layeri]
-        lbs1 = lbs[:layeri]
-        alphas1 = alphas[:layeri]
+        weights1 = weights[:layeri+1]  # [(feat_out, feat_in)]
+        biases1  = biases[:layeri+1]  # [(feat)]
+        ubs1 = ubs[:layeri]  # [(feat)]
+        lbs1 = lbs[:layeri]  # [(feat)]
+        alphas1 = alphas[:layeri]  # [(feat)]
 
         L2 = L - layeri + 1
-        weights2 = [None, torch.eye(weights1[-1].size(0))] + weights[layeri+1:]
-        biases2  = [None, torch.zeros(weights1[-1].size(0))] + biases[layeri+1:]
-        ubs2 = [ubs[layeri]] + ubs[layeri:]
-        lbs2 = [lbs[layeri]] + lbs[layeri:]
-        alphas2 = [None] + alphas[layeri:]
+        weights2 = [None, torch.eye(weights1[-1].size(0))] + weights[layeri+1:]  # [(feat_out, feat_in)]
+        biases2  = [None, torch.zeros(weights1[-1].size(0))] + biases[layeri+1:]  # [(feat)]
+        ubs2 = [ubs[layeri]] + ubs[layeri:]  # [(feat)]
+        lbs2 = [lbs[layeri]] + lbs[layeri:]  # [(feat)]
+        alphas2 = [None] + alphas[layeri:]  # [(feat)]
 
         a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
+        # a_crown_partial (1, featLayerI)
+        # c_crown_partial (1)
 
-        c = torch.zeros(weights2[1].size(1))
-        c[neuron] = (1 if direction == "lbs" else -1)
-        weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])
-        biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])
+        c = torch.zeros((1, weights2[1].size(1)))  # (1, featLayerI)
+        c[0, neuron] = (1 if direction == "lbs" else -1)
+        weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])  # (1, featLayerI-1)
+        biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])  # (featLayerI-1)
         
         a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, None, alphas1, lbs1, ubs1, L1)
+        # a_crown_full (1, featInputLayer)
+        # c_crown_full (1)
         
-        a_crown = a_crown_full
-        c_crown = c_crown_partial + c_crown_full
+        a_crown = a_crown_full  # (1, featInputLayer)
+        c_crown = c_crown_partial + c_crown_full  # (1)
 
-        x_0 = (ubs[0] + lbs[0]) / 2.0
-        eps = (ubs[0] - lbs[0]) / 2.0
+        x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
+        eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
 
-        return -torch.abs(a_crown).squeeze(0).dot(eps) + a_crown.matmul(x_0) + c_crown
+        return -torch.abs(a_crown).matmul(eps) + a_crown.matmul(x_0) + c_crown  # (1)
 
 class ApproximatedInputBound:
     input_lbs: List[float]
