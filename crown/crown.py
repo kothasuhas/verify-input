@@ -142,12 +142,14 @@ def get_bias_lbs(
 
     return bias_lbs
 
-def init_Omega(weights, biases, D):
-    def Omega(end, start):
-        assert end >= start
-        if end == start: return torch.eye(biases[start].size(0))
-        return weights[end].matmul(D[end - 1]).matmul(Omega(end - 1, start))
-    return Omega
+def get_Omega(weights, biases, D, L):
+    omegas = [None for _ in range(L+1)]
+    for layeri in range(L, 0, -1):
+        if layeri == L:
+            omegas[layeri] = torch.eye(biases[L].size(0))
+        else:
+            omegas[layeri] = omegas[layeri+1].matmul(weights[layeri+1]).matmul(D[layeri])
+    return omegas
 
 def get_crown_bounds(
     weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
@@ -160,11 +162,11 @@ def get_crown_bounds(
 ):
     A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(feat_outputLayer==1, feat)], [(feat, feat)]
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(feat)]
-    Omega = init_Omega(weights, biases, D)
+    Omega = get_Omega(weights, biases, D, L)
 
-    a_crown = Omega(L, 1).matmul(weights[1])
-    c_crown = sum([Omega(L, i).matmul(biases[i]) for i in range(1, L + 1)]) \
-            + sum([Omega(L, i).matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
+    a_crown = Omega[1].matmul(weights[1])
+    c_crown = sum([Omega[i].matmul(biases[i]) for i in range(1, L + 1)]) \
+            + sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])
 
     return (a_crown, c_crown) if gamma is None else (gamma.T.matmul(a_crown), gamma.T.matmul(c_crown))
 
