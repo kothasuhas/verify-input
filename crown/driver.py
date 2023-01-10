@@ -49,36 +49,39 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
             for direction, layeri in tqdm(get_direction_layer_pairs(model), desc="Directions & Layers", leave=False):
                 if abort:
                     break
-                neurons = get_num_neurons(model, layeri)
-                for neuron in tqdm(range(neurons), desc="Neurons", leave=False):
-                    if abort:
-                        break
-                    gamma = branch.params_dict[direction][layeri][neuron]['gamma']
-                    alphas = branch.params_dict[direction][layeri][neuron]['alphas']
-                    optim = torch.optim.SGD([
-                        {'params': gamma, 'lr' : 0.0001}, 
-                        {'params': alphas[1:]},
-                    ], lr=3.0, momentum=0.9, maximize=True)
-                    if direction == "lbs" and (branch.resulting_lbs[layeri][neuron] >= 0.0) and layeri > 0: continue
-                    if direction == "ubs" and (branch.resulting_ubs[layeri][neuron] <= 0.0) and layeri > 0: continue
-                    for _ in range(10):
-                        optim.zero_grad()
-                        loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, neuron, direction)
-                        loss.backward()
-                        optim.step()
+                
+                if abort:
+                    break
+                # batch size = features in layer i
+                gamma = branch.params_dict[direction][layeri]['gamma']  # (batch, 1, 1)
+                alphas = branch.params_dict[direction][layeri]['alphas']  # [(feat, feat)]
+                optim = torch.optim.SGD([
+                    {'params': gamma, 'lr' : 0.0001}, 
+                    {'params': alphas[1:]},
+                ], lr=3.0, momentum=0.9, maximize=True)
+                for _ in range(10):
+                    optim.zero_grad()
+                    loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, direction)  # (batch, 1)
+                    assert loss.dim() == 2, loss.shape
+                    assert loss.size(0) == get_num_neurons(model, layeri)
+                    assert loss.size(1) == 1
+                    optimized_bounds = loss.detach().squeeze(dim=1)
+                    loss = loss.sum(dim=0)
+                    loss.backward()
+                    optim.step()
 
-                        with torch.no_grad():
-                            if direction == "lbs":
-                                branch.resulting_lbs[layeri][neuron] = torch.max(branch.resulting_lbs[layeri][neuron], loss.detach())
-                            else:
-                                branch.resulting_ubs[layeri][neuron] = torch.min(branch.resulting_ubs[layeri][neuron], -loss.detach())
-                            if branch.resulting_lbs[layeri][neuron] > branch.resulting_ubs[layeri][neuron]:
-                                tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
-                                abort = True
-                                break
-                            gamma.data = torch.clamp(gamma.data, min=0)
-                            for i in range(1, len(alphas)):
-                                alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                    with torch.no_grad():
+                        if direction == "lbs":
+                            branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], optimized_bounds)
+                        else:
+                            branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bounds)
+                        if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
+                            tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
+                            abort = True
+                            break
+                        gamma.data = torch.clamp(gamma.data, min=0)
+                        for i in range(1, len(alphas)):
+                            alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
 
             if abort:
                 break
