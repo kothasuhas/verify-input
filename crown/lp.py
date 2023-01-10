@@ -39,7 +39,7 @@ def get_optimal_grb_model(model: trainer.nn.Sequential, H: torch.Tensor, d: torc
     w = model[-1].weight.detach().numpy()
     b = model[-1].bias.detach().numpy()
     m.addConstr(((w @ zs[-1]) + b) == xs[-1])
-    m.addConstr(H.detach().numpy() @ xs[-1] + d.detach().numpy() <= 0)
+    m.addConstr(H.detach().numpy() @ xs[-1] + d <= 0)
 
     return m, xs, zs
 

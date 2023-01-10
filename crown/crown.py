@@ -21,7 +21,7 @@ def initialize_weights(
     weights: List[Optional[torch.Tensor]] = [None] + [model[2*i - 1].weight.detach() for i in range(1, L+1)]  # [(feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]] = [None] + [model[2*i - 1].bias.detach() for i in range(1, L+1)]  # [(feat)]
 
-    # assert weights[L].size(0) == 1
+    assert weights[L].size(0) == 1
     weights[L] = H.matmul(weights[L])  # (1, feat_in)
     biases[L]  = H.matmul(biases[L]) + d  # (1)
 
@@ -35,7 +35,7 @@ def initialize_params(
     List[Optional[torch.Tensor]],  # [(feat)]
 ]:
     alphas = [None] + [torch.full((weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
-    # assert weights[-1].size(0) == 1
+    assert weights[-1].size(0) == 1
     gamma = torch.full((weights[-1].size(0), 1), 0.1, requires_grad=True)
 
     return gamma, alphas
@@ -204,9 +204,6 @@ def get_crown_bounds(
     torch.Tensor,  # (feat_outputLayer==1, featInputLayer)
     torch.Tensor,  # (1)
 ]:
-    if gamma is not None:
-        weights = weights[:-1] + [gamma.T.matmul(weights[-1])]
-        biases = biases[:-1] + [gamma.T.matmul(biases[-1])]
     A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(feat_outputLayer==1, feat)], [(feat, feat)]
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(feat)]
     Omega = get_Omega(weights, biases, D, L)  # [(feat_outputLayer==1, feat)]
@@ -216,6 +213,9 @@ def get_crown_bounds(
     sum_bias_lbs: torch.Tensor = sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])  # (1)
     c_crown = sum_biases + sum_bias_lbs  # (1)
 
+    if gamma is not None:
+        a_crown = gamma.T.matmul(a_crown)  # (1, featInputLayer)
+        c_crown = gamma.T.matmul(c_crown)  # (1)
     return (a_crown, c_crown)
 
 def optimize_bound(
@@ -241,6 +241,9 @@ def optimize_bound(
         assert b.dim() == 1
 
     assert gamma is not None
+    assert gamma.dim() == 2
+    assert gamma.size(0) == 1
+    assert gamma.size(1) == 1
 
     assert alphas[0] is None
     for a in alphas[1:]:
