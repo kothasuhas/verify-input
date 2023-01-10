@@ -11,11 +11,10 @@ d = torch.Tensor([thresh, thresh])
 
 model, H, d = load_model("toy", "test-weights.pt", H, d)
 
-cs = [[-0.2326, -1.6094]]
-cs += [np.random.normal(size=2) for _ in range(20)]
+num_cs=20
 input_lbs = [-2.0, -2.0]
 input_ubs = [2.0, 2.0]
 
 num_iters = 5
 
-optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, contour=False)
+optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, contour=False)

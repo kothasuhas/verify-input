@@ -16,12 +16,18 @@ from .lp import get_optimized_grb_result, get_triangle_grb_model
 from .crown import initialize_all, optimize_bound, ApproximatedInputBound, InputBranch
 from .plot_utils import plot2d
 
-def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
+def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
     plt.ion()
     plt.show()
 
     # Output the Gurobi-Text now
     gp.Model()
+
+    # based on https://math.stackexchange.com/a/4388888/50742
+    cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(num_cs)]
+    for i, c in enumerate(cs):
+        if c[1] == 0:  # the plotting will divide by c[1]
+            cs[i] = [c[0], 0.0001]
 
     approximated_input_bounds: List[ApproximatedInputBound] = []
 
@@ -47,9 +53,6 @@ def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching
             pending_approximated_input_bounds = []
             pbar.set_description(f"Best solution to first bound: {last_b}")
             for direction, layeri in tqdm(get_direction_layer_pairs(model), desc="Directions & Layers", leave=False):
-                if abort:
-                    break
-                
                 if abort:
                     break
                 # batch size = features in layer i

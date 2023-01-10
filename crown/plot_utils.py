@@ -64,7 +64,7 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
                 x_vals[0] = min(new_min_x_val, x_vals[1])
                 # print("1a" f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
-                assert max_asserted_y_val > max_y_val # b
+                assert max_asserted_y_val >= max_y_val # b
                 # print("1b")
                 # plt.plot(np.array([x_vals[0], x_vals[0]]), np.array([max_y_val, max_asserted_y_val]), '--', color="black")
             
@@ -75,7 +75,7 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
                 x_vals[1] = max(new_max_x_val, x_vals[0])
                 # print("1c", f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
-                assert min_asserted_y_val < min_y_val
+                assert min_asserted_y_val <= min_y_val
                 # print("1d")
                 # plt.plot(np.array([x_vals[1], x_vals[1]]), np.array([min_asserted_y_val, min_y_val]), '--', color="black")
         else:
@@ -87,7 +87,7 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
                 x_vals[1] = max(new_max_x_val, x_vals[0])
                 # print("2a" f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
-                assert max_asserted_y_val > max_y_val # b
+                assert max_asserted_y_val >= max_y_val # b
                 # print("2b")
                 # plt.plot(np.array([x_vals[1], x_vals[1]]), np.array([max_asserted_y_val, max_y_val]), '--', color="black")
             
@@ -98,7 +98,7 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
                 x_vals[0] = min(new_min_x_val, x_vals[1])
                 # print("2c" f"{x_vals=}", f"{y_vals=}", f"{asserted_y_vals=}")
             else:
-                assert min_asserted_y_val < min_y_val # d
+                assert min_asserted_y_val <= min_y_val # d
                 # print("2d")
                 # plt.plot(np.array([x_vals[0], x_vals[0]]), np.array([min_asserted_y_val, min_y_val]), '--', color="black")
              
