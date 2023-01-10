@@ -21,9 +21,8 @@ def initialize_weights(
     weights: List[Optional[torch.Tensor]] = [None] + [model[2*i - 1].weight.detach() for i in range(1, L+1)]  # [(feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]] = [None] + [model[2*i - 1].bias.detach() for i in range(1, L+1)]  # [(feat)]
 
-    assert weights[L].size(0) == 1
-    weights[L] = H.matmul(weights[L])  # (1, feat_in)
-    biases[L]  = H.matmul(biases[L]) + d  # (1)
+    weights[L] = H.matmul(weights[L])  # (numConstr, feat_in)
+    biases[L]  = H.matmul(biases[L]) + d  # (numConstr)
 
     return weights, biases
 
@@ -32,12 +31,11 @@ def initialize_params(
     L: int,
     batch_size: int
 ) -> Tuple[
-    torch.Tensor,  # (batch, 1, 1)
+    torch.Tensor,  # (batch, numConstr, 1)
     List[Optional[torch.Tensor]],  # [(batch, feat)]
 ]:
     alphas = [None] + [torch.full((batch_size, weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
-    assert weights[-1].size(0) == 1
-    gamma = torch.full((batch_size, weights[-1].size(0), 1), 0.1, requires_grad=True)
+    gamma = torch.full((batch_size, weights[-1].size(0), 1), 0.1, requires_grad=True)  # (batch, numConstr, 1)
 
     return gamma, alphas
 
@@ -110,7 +108,6 @@ def _get_relu_state_masks(
     torch.Tensor,  # (batch, feat)
 ]:
     batch_size = A[-1].size(0)
-    assert batch_size in [200, 2, 1], batch_size
     relu_on_mask = (lbs[layeri] >= 0).tile((batch_size, 1))  # (batch, feat)
     relu_off_mask = (ubs[layeri] <= 0).tile((batch_size, 1))  # (batch, feat)
     a = A[layeri]
@@ -145,7 +142,7 @@ def get_diagonals(
 
         if layeri == L-1:
             # Usually, weights[L] has the shape (feat_out, feat_in)
-            # Except if it was multiplied by a_crown_partial in optimize_bounds
+            # Except if it was multiplied by gamma/a_crown_partial in get_crown_bounds/optimize_bounds
             # Then, the batch dimension has already been added
             if weights[L].dim() == 2:
                 A[layeri] = weights[L].tile((batch_size, 1, 1))
@@ -207,7 +204,7 @@ def get_Omega(
     for layeri in range(L, 0, -1):
         if layeri == L:
             # Usually, biases[L] has shape (feat)
-            # Except if it was multiplied by a_crown_partial in optimize_bounds
+            # Except if it was multiplied by gamma/a_crown_partial in get_crown_bounds/optimize_bounds
             # Then, the batch dimension has already been added
             if biases[L].dim() == 1:  # (feat)
                 omegas[layeri] = torch.eye(biases[L].size(0)).tile((batch_size, 1, 1))
@@ -217,7 +214,7 @@ def get_Omega(
                 omegas[layeri] = torch.eye(biases[L].size(1)).tile((batch_size, 1, 1))
         else:
             # Usually, weights[layer+1] has shape (feat_out, feat_in
-            # Except if it was multiplied by a_crown_partial in optimize_bounds
+            # Except if it was multiplied by gamma/a_crown_partial in get_crown_bounds/optimize_bounds
             # Then, the batch dimension has already been added
             if weights[layeri+1].dim() == 2:  # (feat_out, feat_in)
                 omegas[layeri] = omegas[layeri+1] \
@@ -232,7 +229,7 @@ def get_Omega(
 def get_crown_bounds(
     weights: List[Optional[torch.Tensor]],  # [(batch?, feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]],  # [(batch?, feat)]
-    gamma: Optional[torch.Tensor],  # (batch, numConstr==1, 1)
+    gamma: Optional[torch.Tensor],  # (batch, numConstr, 1)
     alphas: List[Optional[torch.Tensor]],  # [(batch, feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
@@ -242,6 +239,17 @@ def get_crown_bounds(
     torch.Tensor,  # (batch, feat_outputLayer==1, featInputLayer)
     torch.Tensor,  # (batch, 1)
 ]:
+    if gamma is not None:
+        weights = weights[:-1] + [gamma.mT.matmul(weights[-1])]  # last entry: (batch, 1, featSecondToLastLayer)
+        assert weights[-1].dim() == 3
+        assert weights[-1].size(0) == batch_size
+        assert weights[-1].size(1) == 1
+        biases = biases[:-1] + [gamma.mT.matmul(biases[-1])]  # last entry: (batch, 1)
+        assert biases[-1].dim() == 2
+        assert biases[-1].size(0) == batch_size
+        assert biases[-1].size(1) == 1
+
+
     A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(batch, feat_outputLayer==1, feat)], [(batch, feat, feat)]
     bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(batch, feat)]
     Omega = get_Omega(weights, biases, D, L, batch_size)  # [(batch, feat_outputLayer==1, feat)]
@@ -250,12 +258,6 @@ def get_crown_bounds(
     sum_biases: torch.Tensor = sum([Omega[i].matmul(biases[i].unsqueeze(dim=-1)).squeeze(dim=-1) for i in range(1, L + 1)])  # (batch, 1)
     sum_bias_lbs: torch.Tensor = sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1].unsqueeze(dim=-1)).squeeze(dim=-1) for i in range(2, L + 1)])  # (batch, 1)
     c_crown = sum_biases + sum_bias_lbs  # (batch, 1)
-
-    if gamma is not None:
-        assert gamma.size(1) == 1
-        assert gamma.size(2) == 1
-        a_crown = gamma.matmul(a_crown)  # (batch, 1, featInputLayer)
-        c_crown = gamma.matmul(c_crown.unsqueeze(dim=2)).squeeze(dim=2)  # (batch, 1)
 
     assert a_crown.dim() == 3
     assert a_crown.size(0) == batch_size
@@ -269,7 +271,7 @@ def get_crown_bounds(
 def optimize_bound(
     weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]],  # [(feat)]
-    gamma: torch.Tensor,  # (batch, num_constr==1, 1)
+    gamma: torch.Tensor,  # (batch, num_constr, 1)
     alphas: List[Optional[torch.Tensor]],  # [(batch, feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
@@ -291,7 +293,6 @@ def optimize_bound(
 
     assert gamma is not None
     assert gamma.dim() == 3
-    assert gamma.size(1) == 1
     assert gamma.size(2) == 1
 
     assert alphas[0] is None
