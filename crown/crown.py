@@ -29,14 +29,15 @@ def initialize_weights(
 
 def initialize_params(
     weights: List[Optional[torch.Tensor]], # [(feat_out, feat_in)]
-    L: int
+    L: int,
+    batch_size: int
 ) -> Tuple[
-    torch.Tensor,  # (1, 1)
-    List[Optional[torch.Tensor]],  # [(feat)]
+    torch.Tensor,  # (batch, 1, 1)
+    List[Optional[torch.Tensor]],  # [(batch, feat)]
 ]:
-    alphas = [None] + [torch.full((weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
+    alphas = [None] + [torch.full((batch_size, weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
     assert weights[-1].size(0) == 1
-    gamma = torch.full((weights[-1].size(0), 1), 0.1, requires_grad=True)
+    gamma = torch.full((batch_size, weights[-1].size(0), 1), 0.1, requires_grad=True)
 
     return gamma, alphas
 
@@ -92,144 +93,192 @@ def initialize_all(
     params_dict = {"lbs" : {}, "ubs" : {}}
     for direction, layeri in get_direction_layer_pairs(model):
         params_dict[direction][layeri] = {}
-        for neuron in range(get_num_neurons(model, layeri)):
-            gamma, alphas = initialize_params(weights, L)
-            params_dict[direction][layeri][neuron] = {'gamma' : gamma, 'alphas' : alphas}
+        gamma, alphas = initialize_params(weights, L, get_num_neurons(model, layeri))
+        params_dict[direction][layeri] = {'gamma' : gamma, 'alphas' : alphas}
 
     return lbs, ubs, params_dict, weights, biases
 
 def _get_relu_state_masks(
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
-    A: List[Optional[torch.Tensor]],  # [(feat_outputLayer==1, feat)]
+    A: List[Optional[torch.Tensor]],  # [(batch, feat_outputLayer==1, feat)]
     layeri: int
 ) -> Tuple[
-    torch.Tensor,  # (feat)
-    torch.Tensor,  # (feat)
-    torch.Tensor,  # (feat)
-    torch.Tensor,  # (feat)
+    torch.Tensor,  # (batch, feat)
+    torch.Tensor,  # (batch, feat)
+    torch.Tensor,  # (batch, feat)
+    torch.Tensor,  # (batch, feat)
 ]:
-    relu_on_mask = (lbs[layeri] >= 0)  # (feat)
-    relu_off_mask = (ubs[layeri] <= 0)  # (feat)
+    batch_size = A[-1].size(0)
+    assert batch_size in [200, 2, 1], batch_size
+    relu_on_mask = (lbs[layeri] >= 0).tile((batch_size, 1))  # (batch, feat)
+    relu_off_mask = (ubs[layeri] <= 0).tile((batch_size, 1))  # (batch, feat)
     a = A[layeri]
-    assert a.size(0) == 1
     assert a is not None
-    relu_lower_bound_mask: torch.Tensor = (~relu_on_mask) & (~relu_off_mask) & (a[0] >= 0)  # (feat)
-    relu_upper_bound_mask: torch.Tensor = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)  # (feat)
-    assert relu_on_mask.dim() == 1
-    assert relu_off_mask.dim() == 1
-    assert relu_lower_bound_mask.dim() == 1
-    assert relu_upper_bound_mask.dim() == 1
+    assert a.size(1) == 1
+    relu_lower_bound_mask: torch.Tensor = (~relu_on_mask) & (~relu_off_mask) & (a[:, 0] >= 0)  # (batch, feat)
+    relu_upper_bound_mask: torch.Tensor = (~relu_on_mask) & (~relu_off_mask) & (~relu_lower_bound_mask)  # (batch, feat)
+    assert relu_on_mask.dim() == 2
+    assert relu_off_mask.dim() == 2
+    assert relu_lower_bound_mask.dim() == 2
+    assert relu_upper_bound_mask.dim() == 2
     assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask])) == 1
     assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask)
     return relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask
 
 def get_diagonals(
-    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    weights: List[Optional[torch.Tensor]],  # [(batch?, feat_out, feat_in)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
-    alphas: List[Optional[torch.Tensor]],  # [(feat)]
+    alphas: List[Optional[torch.Tensor]],  # [(batch, feat)]
     L: int
 ) -> Tuple[
-    List[Optional[torch.Tensor]],  # [(feat_outputLayer==1, feat)]
-    List[Optional[torch.Tensor]],  # [(feat, feat)]
+    List[Optional[torch.Tensor]],  # [(batch, feat_outputLayer==1, feat)]
+    List[Optional[torch.Tensor]],  # [(batch, feat, feat)]
 ]:
-    A: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(feat_outputLayer==1, feat)]
-    D: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(feat, feat)]
+
+    A: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(batch, feat_outputLayer==1, feat)]
+    D: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(batch, feat, feat)]
     assert len(weights) == L + 1
     for layeri in range(L-1, 0, -1):  # L-1, ..., 1
-        if layeri == L-1:
-            A[layeri] = weights[L]
-        else:
-            A[layeri] = A[layeri+1].matmul(D[layeri+1]).matmul(weights[layeri+1])
-        assert A[layeri].dim() == 2
-        assert A[layeri].size(0) == 1
+        batch_size = alphas[1].size(0)
 
+        if layeri == L-1:
+            # Usually, weights[L] has the shape (feat_out, feat_in)
+            # Except if it was multiplied by a_crown_partial in optimize_bounds
+            # Then, the batch dimension has already been added
+            if weights[L].dim() == 2:
+                A[layeri] = weights[L].tile((batch_size, 1, 1))
+            else:
+                assert weights[L].dim() == 3
+                assert weights[L].size(0) == batch_size
+                A[layeri] = weights[L]
+        else:
+            assert weights[layeri+1].dim() == 2  # (feat_out, feat_in)
+            A[layeri] = A[layeri+1].matmul(D[layeri+1]).matmul(weights[layeri+1])
+        assert A[layeri].dim() == 3
+        assert A[layeri].size(1) == 1
+
+        assert weights[layeri].dim() == 2  # (feat_out, feat_in)
         num_feat = weights[layeri].size(0)
-        D[layeri] = torch.zeros(num_feat, num_feat)
+        D[layeri] = torch.zeros(batch_size, num_feat, num_feat)
 
         relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, layeri)
-        assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask, ubs[layeri], lbs[layeri]]))  # all (feat)
-        assert D[layeri].shape == (relu_on_mask.size(0), relu_on_mask.size(0))
-        D[layeri][relu_on_mask, relu_on_mask] = 1
-        D[layeri][relu_off_mask,relu_off_mask] = 0
-        D[layeri][relu_lower_bound_mask, relu_lower_bound_mask] = alphas[layeri][relu_lower_bound_mask]
-        D[layeri][relu_upper_bound_mask, relu_upper_bound_mask] = (ubs[layeri] / (ubs[layeri] - lbs[layeri]))[relu_upper_bound_mask]
+        assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask, ubs[layeri], lbs[layeri]]))  # all (batch, feat)
+        assert D[layeri].shape == (batch_size, relu_on_mask.size(1), relu_on_mask.size(1))  # (batch, feat, feat)
+        D[layeri][relu_on_mask.diag_embed()] = 1
+        D[layeri][relu_off_mask.diag_embed()] = 0
+        D[layeri][relu_lower_bound_mask.diag_embed()] = alphas[layeri][relu_lower_bound_mask]
+        D[layeri][relu_upper_bound_mask.diag_embed()] = (ubs[layeri] / (ubs[layeri] - lbs[layeri])).tile((batch_size, 1))[relu_upper_bound_mask]
 
     return A, D
 
 def get_bias_lbs(
-    A: List[Optional[torch.Tensor]],  # [(feat_outputLayer==1, feat)]
+    A: List[Optional[torch.Tensor]],  # [(batch, feat_outputLayer==1, feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
     L: int
-) -> List[Optional[torch.Tensor]]:  # [(feat)]
-    bias_lbs: List[Optional[torch.Tensor]] = [None]  # [(feat)]
+) -> List[Optional[torch.Tensor]]:  # [(batch, feat)]
+
+    bias_lbs: List[Optional[torch.Tensor]] = [None]  # [(batch, feat)]
 
     for i in range(1, L):
+        batch_size = A[1].size(0)
+
         assert A[i] is not None
-        num_feat = A[i].size(1)
-        bias_lbs.append(torch.zeros(num_feat))
+        num_feat = A[i].size(2)
+        bias_lbs.append(torch.zeros(batch_size, num_feat))
         relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, i)
         bias_lbs[i][relu_on_mask] = 0
         bias_lbs[i][relu_off_mask] = 0
         bias_lbs[i][relu_lower_bound_mask] = 0
-        bias_lbs[i][relu_upper_bound_mask] = (- (ubs[i] * lbs[i]) / (ubs[i] - lbs[i]))[relu_upper_bound_mask]
+        bias_lbs[i][relu_upper_bound_mask] = (- (ubs[i] * lbs[i]) / (ubs[i] - lbs[i])).tile((batch_size, 1))[relu_upper_bound_mask]
 
     return bias_lbs
 
 def get_Omega(
-    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
-    biases: List[Optional[torch.Tensor]],  # [(feat)]
-    D: List[Optional[torch.Tensor]],  # [(feat, feat)]
-    L: int
-) -> List[Optional[torch.Tensor]]: # [(feat_outputLayer==1, feat)]
+    weights: List[Optional[torch.Tensor]],  # [(batch?, feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]],  # [(batch?, feat)]
+    D: List[Optional[torch.Tensor]],  # [(batch, feat, feat)]
+    L: int,
+    batch_size: int,  # necessary, as D may be [None], so batch size couldn't be inferred
+) -> List[Optional[torch.Tensor]]: # [(batch, feat_outputLayer==1, feat)]
     omegas = [None for _ in range(L+1)]
     for layeri in range(L, 0, -1):
         if layeri == L:
-            omegas[layeri] = torch.eye(biases[L].size(0))
+            # Usually, biases[L] has shape (feat)
+            # Except if it was multiplied by a_crown_partial in optimize_bounds
+            # Then, the batch dimension has already been added
+            if biases[L].dim() == 1:  # (feat)
+                omegas[layeri] = torch.eye(biases[L].size(0)).tile((batch_size, 1, 1))
+            else:
+                assert biases[L].dim() == 2  # (batch, feat)
+                assert biases[L].size(0) == batch_size
+                omegas[layeri] = torch.eye(biases[L].size(1)).tile((batch_size, 1, 1))
         else:
-            omegas[layeri] = omegas[layeri+1].matmul(weights[layeri+1]).matmul(D[layeri])
+            # Usually, weights[layer+1] has shape (feat_out, feat_in
+            # Except if it was multiplied by a_crown_partial in optimize_bounds
+            # Then, the batch dimension has already been added
+            if weights[layeri+1].dim() == 2:  # (feat_out, feat_in)
+                omegas[layeri] = omegas[layeri+1] \
+                    .matmul(weights[layeri+1].unsqueeze(dim=0)) \
+                    .matmul(D[layeri])
+            else:
+                assert weights[layeri+1].dim() == 3
+                assert weights[layeri+1].size(0) == batch_size
+                omegas[layeri] = omegas[layeri+1].matmul(weights[layeri+1]).matmul(D[layeri])
     return omegas
 
 def get_crown_bounds(
-    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
-    biases: List[Optional[torch.Tensor]],  # [(feat)]
-    gamma: torch.Tensor,  # (numConstr==1, 1)
-    alphas: List[Optional[torch.Tensor]],  # [(feat)]
+    weights: List[Optional[torch.Tensor]],  # [(batch?, feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]],  # [(batch?, feat)]
+    gamma: Optional[torch.Tensor],  # (batch, numConstr==1, 1)
+    alphas: List[Optional[torch.Tensor]],  # [(batch, feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
     L: int,
+    batch_size: int,  # necessary, as alphas may be [None], so batch size couldn't be inferred
 ) -> Tuple[
-    torch.Tensor,  # (feat_outputLayer==1, featInputLayer)
-    torch.Tensor,  # (1)
+    torch.Tensor,  # (batch, feat_outputLayer==1, featInputLayer)
+    torch.Tensor,  # (batch, 1)
 ]:
-    A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(feat_outputLayer==1, feat)], [(feat, feat)]
-    bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(feat)]
-    Omega = get_Omega(weights, biases, D, L)  # [(feat_outputLayer==1, feat)]
+    A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(batch, feat_outputLayer==1, feat)], [(batch, feat, feat)]
+    bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(batch, feat)]
+    Omega = get_Omega(weights, biases, D, L, batch_size)  # [(batch, feat_outputLayer==1, feat)]
 
-    a_crown = Omega[1].matmul(weights[1])  # (feat_outputLayer==1, featInputLayer)
-    sum_biases: torch.Tensor = sum([Omega[i].matmul(biases[i]) for i in range(1, L + 1)])  # (1)
-    sum_bias_lbs: torch.Tensor = sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1]) for i in range(2, L + 1)])  # (1)
-    c_crown = sum_biases + sum_bias_lbs  # (1)
+    a_crown = Omega[1].matmul(weights[1])  # (batch, feat_outputLayer==1, featInputLayer)
+    sum_biases: torch.Tensor = sum([Omega[i].matmul(biases[i].unsqueeze(dim=-1)).squeeze(dim=-1) for i in range(1, L + 1)])  # (batch, 1)
+    sum_bias_lbs: torch.Tensor = sum([Omega[i].matmul(weights[i]).matmul(bias_lbs[i - 1].unsqueeze(dim=-1)).squeeze(dim=-1) for i in range(2, L + 1)])  # (batch, 1)
+    c_crown = sum_biases + sum_bias_lbs  # (batch, 1)
 
     if gamma is not None:
-        a_crown = gamma.T.matmul(a_crown)  # (1, featInputLayer)
-        c_crown = gamma.T.matmul(c_crown)  # (1)
+        assert gamma.size(1) == 1
+        assert gamma.size(2) == 1
+        a_crown = gamma.matmul(a_crown)  # (batch, 1, featInputLayer)
+        c_crown = gamma.matmul(c_crown.unsqueeze(dim=2)).squeeze(dim=2)  # (batch, 1)
+
+    assert a_crown.dim() == 3
+    assert a_crown.size(0) == batch_size
+    assert a_crown.size(1) == 1
+    assert a_crown.size(2) == weights[1].size(-1)
+    assert c_crown.dim() == 2
+    assert c_crown.size(0) == batch_size
+    assert c_crown.size(1) == 1
     return (a_crown, c_crown)
 
 def optimize_bound(
     weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]],  # [(feat)]
-    gamma: torch.Tensor,  # (num_constr==1, 1)
-    alphas: List[Optional[torch.Tensor]],  # [(feat)]
+    gamma: torch.Tensor,  # (batch, num_constr==1, 1)
+    alphas: List[Optional[torch.Tensor]],  # [(batch, feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
     L: int,
     layeri: int,
-    neuron: int,
     direction: str,
-) -> torch.Tensor:  # (1)
+) -> torch.Tensor:  # (batch, 1)
+    batch_size = gamma.size(0)
+
     assert weights[0] is None
     for w in weights[1:]:
         assert w is not None
@@ -241,14 +290,15 @@ def optimize_bound(
         assert b.dim() == 1
 
     assert gamma is not None
-    assert gamma.dim() == 2
-    assert gamma.size(0) == 1
+    assert gamma.dim() == 3
     assert gamma.size(1) == 1
+    assert gamma.size(2) == 1
 
     assert alphas[0] is None
     for a in alphas[1:]:
         assert a is not None
-        assert a.dim() == 1
+        assert a.dim() == 2
+        assert a.size(0) == batch_size
 
     for l in lbs:
         assert l is not None
@@ -260,50 +310,62 @@ def optimize_bound(
     
     
     if layeri == 0:
-        c = torch.zeros(weights[1].size(1))
-        c[neuron] = (1 if direction == "lbs" else -1)
-        a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L)
-        a_crown += c  # (1, featInputLayer)
-
-        x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
-        eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
-
-        return -torch.abs(a_crown).matmul(eps) + a_crown.matmul(x_0) + c_crown  # (1)
+        c = torch.zeros(batch_size, weights[1].size(1))  # (batch, featInputLayer==batch)
+        assert weights[1].size(1) == batch_size
+        c = (torch.eye(batch_size) if direction == "lbs" else -torch.eye(batch_size))  # (batch, featInputLayer==batch)
+        a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L, batch_size)
+        # a_crown (batch, 1, featInputLayer)
+        # c_crown (batch, 1)
+        a_crown += c.unsqueeze(dim=1)  # (batch, 1, featInputLayer)
     else:
         L1 = layeri
-        weights1 = weights[:layeri+1]  # [(feat_out, feat_in)]
-        biases1  = biases[:layeri+1]  # [(feat)]
+        weights1 = weights[:layeri+1]  # [(batch?, feat_out, feat_in)]
+        biases1  = biases[:layeri+1]  # [(batch?, feat)]
         ubs1 = ubs[:layeri]  # [(feat)]
         lbs1 = lbs[:layeri]  # [(feat)]
-        alphas1 = alphas[:layeri]  # [(feat)]
+        alphas1 = alphas[:layeri]  # [(batch, feat)]
 
         L2 = L - layeri + 1
         weights2 = [None, torch.eye(weights1[-1].size(0))] + weights[layeri+1:]  # [(feat_out, feat_in)]
         biases2  = [None, torch.zeros(weights1[-1].size(0))] + biases[layeri+1:]  # [(feat)]
         ubs2 = [ubs[layeri]] + ubs[layeri:]  # [(feat)]
         lbs2 = [lbs[layeri]] + lbs[layeri:]  # [(feat)]
-        alphas2 = [None] + alphas[layeri:]  # [(feat)]
+        alphas2 = [None] + alphas[layeri:]  # [(batch, feat)]
 
-        a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2)
-        # a_crown_partial (1, featLayerI)
-        # c_crown_partial (1)
+        a_crown_partial, c_crown_partial = get_crown_bounds(weights2, biases2, gamma, alphas2, lbs2, ubs2, L2, batch_size)
+        # a_crown_partial (batch, 1, featLayerI)
+        # c_crown_partial (batch, 1)
 
-        c = torch.zeros((1, weights2[1].size(1)))  # (1, featLayerI)
-        c[0, neuron] = (1 if direction == "lbs" else -1)
-        weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])  # (1, featLayerI-1)
-        biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])  # (featLayerI-1)
+        assert batch_size == weights2[1].size(0)
+        if direction == "lbs":
+            c = torch.eye(batch_size).unsqueeze(dim=1)  # (batch, 1, featLayerI)
+        else:
+            c = -torch.eye(batch_size).unsqueeze(dim=1)  # (batch, 1, featLayerI)
+        weights1[-1] = (a_crown_partial + c).matmul(weights1[-1])  # (batch, 1, featLayerI-1)
+        biases1[-1]  = (a_crown_partial + c).matmul(biases1[-1])  # (batch, featLayerI-1)
         
-        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, None, alphas1, lbs1, ubs1, L1)
-        # a_crown_full (1, featInputLayer)
-        # c_crown_full (1)
+        a_crown_full, c_crown_full = get_crown_bounds(weights1, biases1, None, alphas1, lbs1, ubs1, L1, batch_size)
+        # a_crown_full (batch, 1, featInputLayer)
+        # c_crown_full (batch, 1)
         
-        a_crown = a_crown_full  # (1, featInputLayer)
-        c_crown = c_crown_partial + c_crown_full  # (1)
+        a_crown = a_crown_full  # (batch, 1, featInputLayer)
+        c_crown = c_crown_partial + c_crown_full  # (batch, 1)
 
-        x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
-        eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
+    assert a_crown.dim() == 3
+    assert a_crown.size(0) == batch_size
+    assert a_crown.size(1) == 1
+    assert c_crown.dim() == 2
+    assert c_crown.size(0) == batch_size
+    assert c_crown.size(1) == 1
 
-        return -torch.abs(a_crown).matmul(eps) + a_crown.matmul(x_0) + c_crown  # (1)
+    x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
+    eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
+
+    res = -torch.abs(a_crown).matmul(eps.unsqueeze(dim=1)).squeeze(dim=2) + a_crown.matmul(x_0.unsqueeze(dim=1)).squeeze(dim=2) + c_crown  # (batch, 1)
+    assert res.dim() == 2, res.shape
+    assert res.size(0) == batch_size
+    assert res.size(1) == 1
+    return res
 
 class ApproximatedInputBound:
     input_lbs: List[float]
