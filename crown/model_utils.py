@@ -1,30 +1,6 @@
 import torch
 import core.trainer as trainer
 
-def _encode_constraints(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor):
-    num_constraints: int = H.size(0)
-    last_layer = model[-1]
-    assert isinstance(last_layer, trainer.nn.Linear)
-    constraint_layer = trainer.nn.Linear(in_features=last_layer.in_features, out_features=num_constraints)
-    constraint_layer.bias.data = H.matmul(last_layer.bias.data) + d
-    constraint_layer.weight.data = H.matmul(last_layer.weight.data)
-
-    relu_layer = trainer.nn.ReLU()
-
-    combined_constraint_layer = trainer.nn.Linear(in_features=num_constraints, out_features=1)
-    combined_constraint_layer.bias.data = torch.Tensor([0.])
-    combined_constraint_layer.weight.data = torch.ones((1, num_constraints))
-
-    model = model[:-1]
-    model.append(constraint_layer)
-    model.append(relu_layer)
-    model.append(combined_constraint_layer)
-
-    H = torch.Tensor([[1.0]])
-    d = torch.Tensor([0.0])
-
-    return model, H, d
-
 def _simplify_network(all_layers):
     new_all_layers = [all_layers[0]]
     for layer in all_layers[1:]:
