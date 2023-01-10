@@ -24,9 +24,13 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
     resolution_y = 1000
     remaining_input_area = np.ones((resolution_y, resolution_x))
     XX, YY = np.meshgrid(np.linspace(MIN_X_INPUT_VALUE, MAX_X_INPUT_VALUE, resolution_x), np.linspace(MIN_Y_INPUT_VALUE, MAX_Y_INPUT_VALUE, resolution_y))
-    X0 = Variable(torch.Tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T))
+    X0 = Variable(torch.tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T, device="cpu", dtype=torch.float32))
+    # https://stackoverflow.com/questions/58926054/how-to-get-the-device-type-of-a-pytorch-module-conveniently#comment104116008_58926343
+    orig_model_location = next(model.parameters()).device
+    model.to("cpu")
     y0 = model(X0)
-    output_constraints = torch.all(H.matmul(y0.unsqueeze(-1)).squeeze(-1) + d <= 0, dim=1)
+    model.to(orig_model_location)
+    output_constraints = torch.all(H.cpu().matmul(y0.unsqueeze(-1)).squeeze(-1) + d.cpu() <= 0, dim=1)
     target_area = (output_constraints).resize(resolution_y,resolution_x).data.numpy()
 
     plt.contour(XX,YY,target_area, colors="green", levels=[0,1])
@@ -135,8 +139,8 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
         remaining_input_area[branch_input_area_mask * excluded_halfspace] = 0
 
     if branch is not None:
-        plt.plot(np.array([branch.input_lbs[0], branch.input_ubs[0], branch.input_ubs[0], branch.input_lbs[0], branch.input_lbs[0]]),
-                    np.array([branch.input_lbs[1], branch.input_lbs[1], branch.input_ubs[1], branch.input_ubs[1], branch.input_lbs[1]]), color="black")
+        plt.plot(np.array([branch.input_lbs[0].cpu(), branch.input_ubs[0].cpu(), branch.input_ubs[0].cpu(), branch.input_lbs[0].cpu(), branch.input_lbs[0].cpu()]),
+                 np.array([branch.input_lbs[1].cpu(), branch.input_lbs[1].cpu(), branch.input_ubs[1].cpu(), branch.input_ubs[1].cpu(), branch.input_lbs[1].cpu()]), color="black")
 
     plt.contourf(XX, YY, remaining_input_area, hatches=["xxxx", ""], alpha=0, levels=[0, 0.5])
 

@@ -33,7 +33,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
 
     def get_initial_input_branch(model, H, d):
         resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=torch.Tensor(input_lbs), input_ubs=torch.Tensor(input_ubs), H=H, d=d)
-        initial_input_branch = InputBranch(input_lbs=input_lbs, input_ubs=input_ubs, params_dict=params_dict, resulting_lbs=resulting_lbs, resulting_ubs=resulting_ubs, weights=weights, biases=biases)
+        initial_input_branch = InputBranch(input_lbs=torch.Tensor(input_lbs), input_ubs=torch.Tensor(input_ubs), params_dict=params_dict, resulting_lbs=resulting_lbs, resulting_ubs=resulting_ubs, weights=weights, biases=biases)
         return initial_input_branch
 
     branches = [get_initial_input_branch(model, H, d)]
@@ -98,7 +98,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                     continue
                 if i == 0:
                     last_b = b
-                pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs, branch.input_ubs, c, b))
+                pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), c, b))
             if gurobi_infeasible_counter > 0:
                 tqdm.write("[WARNING] Gurobi determined that the bounds are infeasible. That's either a bug or this input region as no intersection with the target area")
                 assert gurobi_infeasible_counter == len(cs)

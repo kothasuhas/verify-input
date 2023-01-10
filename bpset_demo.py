@@ -3,6 +3,9 @@ import numpy as np
 from crown.driver import optimize
 from crown.model_utils import load_model
 
+if torch.cuda.is_available():
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
 H = torch.Tensor([
         [1, 0], 
         [-1, 0],

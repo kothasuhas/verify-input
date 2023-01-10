@@ -17,7 +17,7 @@ def _get_grb_model(model: trainer.nn.Sequential, layers: int, input_lbs: List[fl
     xs = []
     zs = [input]
     for l in range(layers-1):
-        w = model[l*2 + 1].weight.detach().numpy()
+        w = model[l*2 + 1].weight.detach().cpu().numpy()
         hidden_dim = w.shape[0]
         xs.append(m.addMVar(shape=hidden_dim, lb=-1e30, ub=1e30, name=f"x{l}"))
         zs.append(m.addMVar(shape=hidden_dim, lb=-1e30, ub=1e30, name=f"z{l+1}"))
@@ -30,16 +30,16 @@ def get_optimal_grb_model(model: trainer.nn.Sequential, H: torch.Tensor, d: torc
 
     m, xs, zs = _get_grb_model(model, layers, input_lbs, input_ubs)
     for layer in range(layers-1):
-        w = model[layer*2 + 1].weight.detach().numpy()
-        b = model[layer*2 + 1].bias.detach().numpy()
+        w = model[layer*2 + 1].weight.detach().cpu().numpy()
+        b = model[layer*2 + 1].bias.detach().cpu().numpy()
         hidden_dim = w.shape[0]
         m.addConstr(((w @ zs[layer]) + b) == xs[layer])
         for i in range(hidden_dim):
             m.addConstr(zs[layer+1][i] == gp.max_(xs[layer][i], constant=0))
-    w = model[-1].weight.detach().numpy()
-    b = model[-1].bias.detach().numpy()
+    w = model[-1].weight.detach().cpu().numpy()
+    b = model[-1].bias.detach().cpu().numpy()
     m.addConstr(((w @ zs[-1]) + b) == xs[-1])
-    m.addConstr(H.detach().numpy() @ xs[-1] + d.detach().numpy() <= 0)
+    m.addConstr(H.detach().cpu().numpy() @ xs[-1] + d.detach().cpu().numpy() <= 0)
 
     return m, xs, zs
 
@@ -49,8 +49,8 @@ def get_triangle_grb_model(model: trainer.nn.Sequential, ubs, lbs, H: torch.Tens
     m, xs, zs = _get_grb_model(model, layers, input_lbs, input_ubs)
 
     for layer in range(layers-1):
-        w = model[layer*2 + 1].weight.detach().numpy()
-        b = model[layer*2 + 1].bias.detach().numpy()
+        w = model[layer*2 + 1].weight.detach().cpu().numpy()
+        b = model[layer*2 + 1].bias.detach().cpu().numpy()
         hidden_dim = w.shape[0]
         m.addConstr(((w @ zs[layer]) + b) == xs[layer])
         for i in range(hidden_dim):
@@ -65,10 +65,10 @@ def get_triangle_grb_model(model: trainer.nn.Sequential, ubs, lbs, H: torch.Tens
                 m.addConstr(zs[layer+1][i] >= 0)
                 m.addConstr(zs[layer+1][i] >= xs[layer][i])
                 m.addConstr(zs[layer+1][i] <= xs[layer][i] * u / (u - l) - (l * u) / (u - l))
-    w = model[-1].weight.detach().numpy()
-    b = model[-1].bias.detach().numpy()
+    w = model[-1].weight.detach().cpu().numpy()
+    b = model[-1].bias.detach().cpu().numpy()
     m.addConstr(((w @ zs[-1]) + b) == xs[-1])
-    m.addConstr(H.detach().numpy() @ xs[-1] + d.detach().numpy() <= 0)
+    m.addConstr(H.detach().cpu().numpy() @ xs[-1] + d.detach().cpu().numpy() <= 0)
 
     return m, xs, zs
 

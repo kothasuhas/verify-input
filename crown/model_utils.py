@@ -48,7 +48,7 @@ def get_num_layers(model: trainer.nn.Sequential):
     return layers
 
 def get_num_neurons(model: trainer.nn.Sequential, layer: int):
-    return model[layer*2+1].weight.detach().numpy().shape[1]
+    return model[layer*2+1].weight.detach().cpu().numpy().shape[1]
 
 def get_direction_layer_pairs(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
