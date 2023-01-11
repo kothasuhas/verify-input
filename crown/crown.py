@@ -11,8 +11,8 @@ from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pa
 
 def initialize_weights(
     model: trainer.nn.Sequential,
-    H: torch.Tensor,  # (numConstr==1, 1)
-    d: torch.Tensor,  # (numConstr==1)
+    H: torch.Tensor,  # (numConstr, 1)
+    d: torch.Tensor,  # (numConstr)
 ) -> Tuple[
     List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
     List[Optional[torch.Tensor]],  # [(feat)]
@@ -35,7 +35,7 @@ def initialize_params(
     List[Optional[torch.Tensor]],  # [(batch, feat)]
 ]:
     alphas = [None] + [torch.full((batch_size, weights[i].size(0),), 0.5, requires_grad=True) for i in range(1, L)]
-    gamma = torch.full((batch_size, weights[-1].size(0), 1), 0.1, requires_grad=True)  # (batch, numConstr, 1)
+    gamma = torch.full((batch_size, weights[-1].size(0), 1), 0.025, requires_grad=True)  # (batch, numConstr, 1)
 
     return gamma, alphas
 
@@ -72,8 +72,8 @@ def initialize_all(
     model: trainer.nn.Sequential,
     input_lbs: torch.Tensor,  # (featInputLayer)
     input_ubs: torch.Tensor,  # (featInputLayer)
-    H: torch.Tensor,  # (numConstr==1, 1)
-    d: torch.Tensor,  # (numConstr==1)
+    H: torch.Tensor,  # (numConstr, 1)
+    d: torch.Tensor,  # (numConstr)
 ) -> Tuple[
     List[torch.Tensor],  # [(feat)]
     List[torch.Tensor],  # [(feat)]

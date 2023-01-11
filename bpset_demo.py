@@ -19,12 +19,12 @@ d = torch.Tensor([
         -0.25
     ])
 
-model, H, d = load_model("doubleintegrator_nonres", "doubleintegrator.pt", H, d, stack_n_times=3)
+model, H, d = load_model("doubleintegrator_nonres", "doubleintegrator.pt", H, d, stack_n_times=5)
 
 num_cs = 20
 input_lbs = [-5.0, -5.0]
 input_ubs = [5.0, 5.0]
 
-num_iters = 5
+num_iters = 10
 
 optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=False)

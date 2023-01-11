@@ -11,8 +11,8 @@ import torch
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs, load_model
-from .lp import get_optimized_grb_result, get_triangle_grb_model
+from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs
+from .lp import get_optimized_grb_result, get_triangle_grb_model, get_optimal_grb_model
 from .crown import initialize_all, optimize_bound, ApproximatedInputBound, InputBranch
 from .plot_utils import plot2d
 
@@ -59,7 +59,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                 gamma = branch.params_dict[direction][layeri]['gamma']  # (batch, 1, 1)
                 alphas = branch.params_dict[direction][layeri]['alphas']  # [(feat, feat)]
                 optim = torch.optim.SGD([
-                    {'params': gamma, 'lr' : 0.0001}, 
+                    {'params': gamma, 'lr' : 0.001}, 
                     {'params': alphas[1:]},
                 ], lr=3.0, momentum=0.9, maximize=True)
                 for _ in range(10):
