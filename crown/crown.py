@@ -9,6 +9,28 @@ import torch
 import core.trainer as trainer
 from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs
 
+import time
+import functools
+total_time = 0
+earliest_call = None
+def timeit(func):
+    global total_time, earliest_call
+    @functools.wraps(func)
+    def new_func(*args, **kwargs):
+        global total_time, earliest_call
+        start_time = time.time()
+        if earliest_call is None:
+            earliest_call = start_time
+        result = func(*args, **kwargs)
+        elapsed_time = time.time() - start_time
+        total_time += elapsed_time
+        time_since_first_call = time.time() - earliest_call
+        print(f'function [{func.__name__}] finished in {elapsed_time}s (total {total_time}s, first call was {time_since_first_call}s ago)')
+        return result
+    return new_func
+
+
+
 def initialize_weights(
     model: trainer.nn.Sequential,
     H: torch.Tensor,  # (numConstr==1, 1)
@@ -110,6 +132,9 @@ def _get_relu_state_masks(
     batch_size = A[-1].size(0)
     relu_on_mask = (lbs[layeri] >= 0).tile((batch_size, 1))  # (batch, feat)
     relu_off_mask = (ubs[layeri] <= 0).tile((batch_size, 1))  # (batch, feat)
+    relu_both = ((lbs[layeri] == 0) & (ubs[layeri] == 0))
+    assert torch.all(~relu_both)
+    assert torch.all(~(relu_on_mask & relu_off_mask))
     a = A[layeri]
     assert a is not None
     assert a.size(1) == 1
@@ -120,7 +145,7 @@ def _get_relu_state_masks(
     assert relu_lower_bound_mask.dim() == 2
     assert relu_upper_bound_mask.dim() == 2
     assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask])) == 1
-    assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask)
+    assert torch.all(relu_on_mask ^ relu_off_mask ^ relu_lower_bound_mask ^ relu_upper_bound_mask), (relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask)
     return relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask
 
 def get_diagonals(
@@ -268,6 +293,7 @@ def get_crown_bounds(
     assert c_crown.size(1) == 1
     return (a_crown, c_crown)
 
+# @timeit
 def optimize_bound(
     weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
     biases: List[Optional[torch.Tensor]],  # [(feat)]
@@ -380,6 +406,13 @@ class ApproximatedInputBound:
         self.c = c
         self.b = b
 
+class ExcludedInputRegions:
+    input_lbs: List[torch.Tensor]
+    input_ubs: List[torch.Tensor]
+
+    def __init__(self, input_lbs, input_ubs) -> None:
+        self.input_lbs = input_lbs
+        self.input_ubs = input_ubs
 
 class InputBranch:
     input_lbs: List[torch.Tensor]

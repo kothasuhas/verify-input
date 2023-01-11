@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs, load_model
 from .lp import get_optimized_grb_result, get_triangle_grb_model
-from .crown import initialize_all, optimize_bound, ApproximatedInputBound, InputBranch
+from .crown import initialize_all, optimize_bound, ApproximatedInputBound, ExcludedInputRegions, InputBranch
 from .plot_utils import plot2d
 
 def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
@@ -30,6 +30,8 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
             cs[i] = [c[0], 0.0001]
 
     approximated_input_bounds: List[ApproximatedInputBound] = []
+    excluded_input_regions: List[ExcludedInputRegions] = []
+
 
     def get_initial_input_branch(model, H, d):
         resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=torch.Tensor(input_lbs), input_ubs=torch.Tensor(input_ubs), H=H, d=d)
@@ -37,12 +39,16 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
         return initial_input_branch
 
     branches = [get_initial_input_branch(model, H, d)]
-    if perform_branching:
-        branches += branches[0].split()
+    # if perform_branching:
+    #     branches += branches[0].split()
 
     plot_number = 0
     num_layers = get_num_layers(model)
-    for branch in tqdm(branches, desc="Input Branches"):
+    while True:
+        if len(branches) == 0:
+            break
+        branch = branches[0]
+        branches = branches[1:]
         pbar = tqdm(range(num_iters), leave=False)
         last_b = []
         abort = False
@@ -63,7 +69,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                     {'params': alphas[1:]},
                 ], lr=3.0, momentum=0.9, maximize=True)
                 for _ in range(10):
-                    optim.zero_grad()
+                    optim.zero_grad(set_to_none=True)
                     loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, direction)  # (batch, 1)
                     assert loss.dim() == 2, loss.shape
                     assert loss.size(0) == get_num_neurons(model, layeri)
@@ -85,7 +91,6 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                         gamma.data = torch.clamp(gamma.data, min=0)
                         for i in range(1, len(alphas)):
                             alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
-
             if abort:
                 break
             m, xs, zs = get_triangle_grb_model(model, branch.resulting_ubs, branch.resulting_lbs, H, d, input_lbs, input_ubs)
@@ -105,8 +110,12 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                 abort = True
                 break
 
-            plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
+            plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
             plot_number += 1
-        approximated_input_bounds += pending_approximated_input_bounds
-    plot2d(model, H, d, approximated_input_bounds, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
+        if abort:
+            excluded_input_regions.append(ExcludedInputRegions(branch.input_lbs.cpu(), branch.input_ubs.cpu()))
+        else:
+            approximated_input_bounds += pending_approximated_input_bounds
+            branches += branch.split()
+    plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
     input("Press enter to terminate")
