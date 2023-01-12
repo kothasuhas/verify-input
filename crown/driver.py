@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs
 from .lp import get_optimized_grb_result, get_triangle_grb_model, get_optimal_grb_model
-from .crown import initialize_all, optimize_bound, ApproximatedInputBound, InputBranch
+from .crown import initialize_all, optimize_bound, ApproximatedInputBound, InputBranch, initialize_params, optimize_random_input_plane
 from .plot_utils import plot2d
 
 def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
@@ -47,44 +47,52 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
         last_b = []
         abort = False
         pending_approximated_input_bounds: List[ApproximatedInputBound] = []
+
+        gamma_global, alphas_global = initialize_params(branch.weights, num_layers, 2) 
+        optim = torch.optim.SGD([{'params': gamma_global, 'lr' : 0.001}, {'params': alphas_global[1:]}], lr=3.0, momentum=0.9, maximize=True)
+        for direction, layeri in get_direction_layer_pairs(model):
+            gamma = branch.params_dict[direction][layeri]['gamma']  # (batch, 1, 1)
+            alphas = branch.params_dict[direction][layeri]['alphas']  # [(feat, feat)]
+            optim.add_param_group({'params': gamma, 'lr' : 0.001})
+            optim.add_param_group({'params': alphas[1:]})
+
         for _ in pbar:
             if abort:
                 break
             pending_approximated_input_bounds = []
             pbar.set_description(f"Best solution to first bound: {last_b}")
-            for direction, layeri in tqdm(get_direction_layer_pairs(model), desc="Directions & Layers", leave=False):
-                if abort:
-                    break
-                # batch size = features in layer i
-                gamma = branch.params_dict[direction][layeri]['gamma']  # (batch, 1, 1)
-                alphas = branch.params_dict[direction][layeri]['alphas']  # [(feat, feat)]
-                optim = torch.optim.SGD([
-                    {'params': gamma, 'lr' : 0.001}, 
-                    {'params': alphas[1:]},
-                ], lr=3.0, momentum=0.9, maximize=True)
-                for _ in range(10):
+            for i in range(5):
+                if i > 0:
                     optim.zero_grad()
-                    loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, direction)  # (batch, 1)
-                    assert loss.dim() == 2, loss.shape
-                    assert loss.size(0) == get_num_neurons(model, layeri)
-                    assert loss.size(1) == 1
-                    optimized_bounds = loss.detach().squeeze(dim=1)
-                    loss = loss.sum(dim=0)
-                    loss.backward()
-                    optim.step()
-
-                    with torch.no_grad():
-                        if direction == "lbs":
-                            branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], optimized_bounds)
-                        else:
-                            branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bounds)
-                        if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
-                            tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
-                            abort = True
+                    for direction, layeri in get_direction_layer_pairs(model):
+                        if abort:
                             break
+                        gamma = branch.params_dict[direction][layeri]['gamma']  # (batch, 1, 1)
+                        alphas = branch.params_dict[direction][layeri]['alphas']  # [(feat, feat)]
                         gamma.data = torch.clamp(gamma.data, min=0)
                         for i in range(1, len(alphas)):
                             alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                        optimized_bound = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, direction)  # (batch, 1)
+                        assert optimized_bound.dim() == 2, optimized_bound.shape
+                        assert optimized_bound.size(0) == get_num_neurons(model, layeri)
+                        assert optimized_bound.size(1) == 1
+
+                        if direction == "lbs":
+                            branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], optimized_bound.detach().squeeze(dim=1))
+                            # branch.resulting_lbs[layeri] = optimized_bound.detach().squeeze(dim=1)
+                        else:
+                            branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bound.detach().squeeze(dim=1))
+                            # branch.resulting_ubs[layeri] = -optimized_bound.detach().squeeze(dim=1)
+
+                print(branch.resulting_lbs[-1], branch.resulting_ubs[-1])
+                loss = optimize_random_input_plane(branch.weights, branch.biases, gamma_global, alphas_global, branch.resulting_lbs, branch.resulting_ubs, num_layers, 0, "ubs").sum(dim=0)  # (batch, 1)
+                loss.backward()
+                optim.step()
+
+                if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
+                    tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
+                    abort = True
+                    break
 
             if abort:
                 break

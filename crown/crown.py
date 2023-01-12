@@ -90,7 +90,6 @@ def initialize_all(
     
     params_dict = {"lbs" : {}, "ubs" : {}}
     for direction, layeri in get_direction_layer_pairs(model):
-        params_dict[direction][layeri] = {}
         gamma, alphas = initialize_params(weights, L, get_num_neurons(model, layeri))
         params_dict[direction][layeri] = {'gamma' : gamma, 'alphas' : alphas}
 
@@ -358,6 +357,65 @@ def optimize_bound(
     assert c_crown.dim() == 2
     assert c_crown.size(0) == batch_size
     assert c_crown.size(1) == 1
+
+    x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
+    eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
+
+    res = -torch.abs(a_crown).matmul(eps.unsqueeze(dim=1)).squeeze(dim=2) + a_crown.matmul(x_0.unsqueeze(dim=1)).squeeze(dim=2) + c_crown  # (batch, 1)
+    assert res.dim() == 2, res.shape
+    assert res.size(0) == batch_size
+    assert res.size(1) == 1
+    return res
+
+def optimize_random_input_plane(
+    weights: List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
+    biases: List[Optional[torch.Tensor]],  # [(feat)]
+    gamma: torch.Tensor,  # (batch, num_constr, 1)
+    alphas: List[Optional[torch.Tensor]],  # [(batch, feat)]
+    lbs: List[torch.Tensor],  # [(feat)]
+    ubs: List[torch.Tensor],  # [(feat)]
+    L: int,
+    layeri: int,
+    direction: str,
+) -> torch.Tensor:  # (batch, 1)
+    batch_size = gamma.size(0)
+
+    assert weights[0] is None
+    for w in weights[1:]:
+        assert w is not None
+        assert w.dim() == 2
+
+    assert biases[0] is None
+    for b in biases[1:]:
+        assert b is not None
+        assert b.dim() == 1
+
+    assert gamma is not None
+    assert gamma.dim() == 3
+    assert gamma.size(2) == 1
+
+    assert alphas[0] is None
+    for a in alphas[1:]:
+        assert a is not None
+        assert a.dim() == 2
+        assert a.size(0) == batch_size
+
+    for l in lbs:
+        assert l is not None
+        assert l.dim() == 1
+    
+    for u in ubs:
+        assert u is not None
+        assert u.dim() == 1
+    
+    if layeri == 0:
+        c = torch.randn(batch_size, weights[1].size(1))  # (batch, featInputLayer==batch)
+        assert weights[1].size(1) == batch_size
+        c = (torch.eye(batch_size) if direction == "lbs" else -torch.eye(batch_size))  # (batch, featInputLayer==batch)
+        a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L, batch_size)
+        # a_crown (batch, 1, featInputLayer)
+        # c_crown (batch, 1)
+        a_crown += c.unsqueeze(dim=1)  # (batch, 1, featInputLayer)
 
     x_0 = (ubs[0] + lbs[0]) / 2.0  # (featInputLayer)
     eps = (ubs[0] - lbs[0]) / 2.0  # (featInputLayer)
