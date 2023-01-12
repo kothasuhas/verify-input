@@ -13,8 +13,9 @@ import matplotlib.pyplot as plt
 
 from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs
 from .lp import get_optimized_grb_result, get_triangle_grb_model
-from .crown import initialize_all, optimize_bound, ApproximatedInputBound, ExcludedInputRegions, InputBranch
+from .crown import initialize_all, optimize_bound, initialize_bounds
 from .plot_utils import plot2d
+from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
 def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
     plt.ion()
@@ -54,7 +55,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
         abort = False
         for layeri in range(get_num_layers(model)):
             if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
-                tqdm.write(f"[WARNING] Input area of the next branch is empty. That's either a bug, or this input region has no intersection with the target area")
+                tqdm.write(f"[WARNING] Next branch has invalid bounds at layer {layeri}. That's either a bug, or this input region has no intersection with the target area")
                 abort = True  # we'll skip the optimizations and jump to the end of this loop where the current input region is marked as unreachable
 
         pbar = tqdm(range(num_iters), leave=False)

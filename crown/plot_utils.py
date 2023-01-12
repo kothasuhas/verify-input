@@ -9,7 +9,7 @@ from torch.autograd import Variable
 import core.trainer as trainer
 import matplotlib.pyplot as plt
 
-from crown.crown import ApproximatedInputBound, ExcludedInputRegions, InputBranch
+from .branch_utils import ApproximatedInputBound, ExcludedInputRegions, InputBranch
 
 def plot2d(
     model: trainer.nn.Sequential,
