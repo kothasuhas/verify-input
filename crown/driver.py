@@ -17,7 +17,7 @@ from .crown import initialize_all, optimize_bound, initialize_bounds
 from .plot_utils import plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
-def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
+def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True, verbose_plotting=False):
     plt.ion()
     plt.show()
 
@@ -118,8 +118,9 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                 abort = True
                 break
 
-            plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
-            plot_number += 1
+            if verbose_plotting:
+                plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
+                plot_number += 1
         if abort:
             excluded_input_regions.append(ExcludedInputRegions(branch.input_lbs.cpu(), branch.input_ubs.cpu()))
         else:
