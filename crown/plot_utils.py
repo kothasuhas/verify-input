@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import gurobipy as gp
@@ -9,7 +9,21 @@ from torch.autograd import Variable
 import core.trainer as trainer
 import matplotlib.pyplot as plt
 
-def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, approximated_input_bounds, input_lbs, input_ubs, plot_number: int, save: bool, branch = None, contour=True):
+from crown.crown import ApproximatedInputBound, ExcludedInputRegions, InputBranch
+
+def plot2d(
+    model: trainer.nn.Sequential,
+    H: torch.Tensor,
+    d: torch.Tensor,
+    approximated_input_bounds: List[ApproximatedInputBound],
+    excluded_input_regions: List[ExcludedInputRegions],
+    input_lbs: List[torch.Tensor],
+    input_ubs: List[torch.Tensor],
+    plot_number: int,
+    save: bool,
+    branch: Optional[InputBranch] = None,
+    contour: bool =True
+):
     plt.rcParams["figure.figsize"] = (8, 8)
     plt.cla()
 
@@ -110,6 +124,17 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
         y_vals = intercept + slope * x_vals
         plt.fill(x_vals, y_vals, '--', color="red")
 
+    def get_branch_input_area_mask(input_lbs: List[torch.Tensor], input_ubs: List[torch.Tensor]):
+        ticks_per_width_x = resolution_x / (MAX_X_INPUT_VALUE - MIN_X_INPUT_VALUE)
+        ticks_per_width_y = resolution_y / (MAX_Y_INPUT_VALUE - MIN_Y_INPUT_VALUE)
+        branch_input_area_mask = np.zeros((resolution_y, resolution_x), dtype=np.bool8)
+        branch_x_lbs_in_ticks = math.ceil((input_lbs[0] - MIN_X_INPUT_VALUE) * ticks_per_width_x)
+        branch_x_ubs_in_ticks = math.floor((input_ubs[0] - MIN_X_INPUT_VALUE) * ticks_per_width_x)
+        branch_y_lbs_in_ticks = math.ceil((input_lbs[1] - MIN_Y_INPUT_VALUE) * ticks_per_width_y)
+        branch_y_ubs_in_ticks = math.floor((input_ubs[1] - MIN_Y_INPUT_VALUE) * ticks_per_width_y)
+        branch_input_area_mask[branch_y_lbs_in_ticks:branch_y_ubs_in_ticks+1, branch_x_lbs_in_ticks:branch_x_ubs_in_ticks+1] = 1
+        return branch_input_area_mask
+
     for approximated_input_bound in approximated_input_bounds:
         c = approximated_input_bound.c
         b = approximated_input_bound.b
@@ -120,14 +145,7 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
         intercept = b / c[1]
         abline(deepcopy(x_vals), deepcopy(y_vals), slope, intercept)
 
-        branch_input_area_mask = np.zeros((resolution_y, resolution_x), dtype=np.bool8)
-        ticks_per_width_x = resolution_x / (MAX_X_INPUT_VALUE - MIN_X_INPUT_VALUE)
-        ticks_per_width_y = resolution_y / (MAX_Y_INPUT_VALUE - MIN_Y_INPUT_VALUE)
-        branch_x_lbs_in_ticks = math.ceil((approximated_input_bound.input_lbs[0] - MIN_X_INPUT_VALUE) * ticks_per_width_x)
-        branch_x_ubs_in_ticks = math.floor((approximated_input_bound.input_ubs[0] - MIN_X_INPUT_VALUE) * ticks_per_width_x)
-        branch_y_lbs_in_ticks = math.ceil((approximated_input_bound.input_lbs[1] - MIN_Y_INPUT_VALUE) * ticks_per_width_y)
-        branch_y_ubs_in_ticks = math.floor((approximated_input_bound.input_ubs[1] - MIN_Y_INPUT_VALUE) * ticks_per_width_y)
-        branch_input_area_mask[branch_y_lbs_in_ticks:branch_y_ubs_in_ticks+1, branch_x_lbs_in_ticks:branch_x_ubs_in_ticks+1] = 1
+        branch_input_area_mask = get_branch_input_area_mask(approximated_input_bound.input_lbs, approximated_input_bound.input_ubs)
 
         excluded_halfspace = np.zeros((resolution_y, resolution_x), dtype=np.bool8)
         if c[1] > 0:
@@ -137,6 +155,13 @@ def plot2d(model: trainer.nn.Sequential, H: torch.Tensor, d: torch.Tensor, appro
             excluded_halfspace[intercept + XX * slope < YY] = 1
 
         remaining_input_area[branch_input_area_mask * excluded_halfspace] = 0
+
+    for excluded_input_region in excluded_input_regions:
+        branch_input_area_mask = get_branch_input_area_mask(excluded_input_region.input_lbs, excluded_input_region.input_ubs)
+        remaining_input_area[branch_input_area_mask] = 0
+        plt.plot(np.array([excluded_input_region.input_lbs[0].cpu(), excluded_input_region.input_ubs[0].cpu(), excluded_input_region.input_ubs[0].cpu(), excluded_input_region.input_lbs[0].cpu(), excluded_input_region.input_lbs[0].cpu()]),
+                 np.array([excluded_input_region.input_lbs[1].cpu(), excluded_input_region.input_lbs[1].cpu(), excluded_input_region.input_ubs[1].cpu(), excluded_input_region.input_ubs[1].cpu(), excluded_input_region.input_lbs[1].cpu()]), color="red")
+
 
     if branch is not None:
         plt.plot(np.array([branch.input_lbs[0].cpu(), branch.input_ubs[0].cpu(), branch.input_ubs[0].cpu(), branch.input_lbs[0].cpu(), branch.input_lbs[0].cpu()]),

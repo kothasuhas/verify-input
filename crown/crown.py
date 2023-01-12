@@ -380,6 +380,13 @@ class ApproximatedInputBound:
         self.c = c
         self.b = b
 
+class ExcludedInputRegions:
+    input_lbs: List[torch.Tensor]
+    input_ubs: List[torch.Tensor]
+
+    def __init__(self, input_lbs, input_ubs) -> None:
+        self.input_lbs = input_lbs
+        self.input_ubs = input_ubs
 
 class InputBranch:
     input_lbs: List[torch.Tensor]
