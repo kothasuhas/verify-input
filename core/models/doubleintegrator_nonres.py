@@ -14,3 +14,18 @@ def doubleintegrator_nonres():
         nn.Linear(7, 2)
     )
     return model
+
+def doubleintegrator_nonres_ulimits():
+    model = nn.Sequential(
+        Flatten(),
+        nn.Linear(2, 12),
+        nn.ReLU(),
+        nn.Linear(12, 7),
+        nn.ReLU(),
+        nn.Linear(7, 4),
+        nn.ReLU(),
+        nn.Linear(4, 4),
+        nn.ReLU(),
+        nn.Linear(4, 2)
+    )
+    return model

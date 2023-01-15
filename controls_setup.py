@@ -11,6 +11,8 @@ class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
+u_limits = torch.Tensor([-1.0, 1.0])
+
 json_file = open('model.json', 'r')
 loaded_model_json = json_file.read()
 json_file.close()
@@ -43,22 +45,66 @@ with torch.no_grad():
     policy[5].weight = torch.nn.Parameter(B.matmul(keras_layer(4)))
     policy[5].bias   = torch.nn.Parameter(B.matmul(keras_layer(5)))
 
-policy_nores = nn.Sequential(
-    Flatten(),
-    nn.Linear(2, 12),
-    nn.ReLU(),
-    nn.Linear(12, 7),
-    nn.ReLU(),
-    nn.Linear(7, 2)
-)
+if u_limits is not None:
+    # Last b -= u_min
+    policy[-1].bias.data -= u_limits[0]
+    # ReLU
+    policy.append(nn.ReLU())
+    # W = -I, b = u_max - u_min
+    layer = nn.Linear(2, 2, True)
+    layer.weight.data = -torch.eye(2)
+    layer.bias.data = torch.Tensor(u_limits[1] - u_limits[0])
+    policy.append(layer)
+    # ReLU
+    policy.append(nn.ReLU())
+    # W = -I, b = u_max
+    layer = nn.Linear(2, 2, True)
+    layer.weight.data = -torch.eye(2)
+    layer.bias.data = torch.Tensor(u_limits[1])
+    policy.append(layer)
+
+print(policy)
+
+if u_limits is not None:
+    policy_nores = nn.Sequential(
+        Flatten(),
+        nn.Linear(2, 12),
+        nn.ReLU(),
+        nn.Linear(12, 7),
+        nn.ReLU(),
+        nn.Linear(7, 4),
+        nn.ReLU(),
+        nn.Linear(4, 4),
+        nn.ReLU(),
+        nn.Linear(4, 2),
+    )
+else:
+    policy_nores = nn.Sequential(
+        Flatten(),
+        nn.Linear(2, 12),
+        nn.ReLU(),
+        nn.Linear(12, 7),
+        nn.ReLU(),
+        nn.Linear(7, 2),
+    )
+
+print(policy_nores)
 
 with torch.no_grad():
     policy_nores[1].weight = torch.nn.Parameter(torch.zeros(12, 2))
     policy_nores[1].bias   = torch.nn.Parameter(torch.zeros(12))
     policy_nores[3].weight = torch.nn.Parameter(torch.zeros(7, 12))
     policy_nores[3].bias   = torch.nn.Parameter(torch.zeros(7))
-    policy_nores[5].weight = torch.nn.Parameter(torch.zeros(2, 7))
-    policy_nores[5].bias   = torch.nn.Parameter(torch.zeros(2))
+    if u_limits is not None:
+        policy_nores[5].weight = torch.nn.Parameter(torch.zeros(4, 7))
+        policy_nores[5].bias   = torch.nn.Parameter(torch.zeros(4))
+        policy_nores[7].weight = torch.nn.Parameter(torch.zeros(4, 4))
+        policy_nores[7].bias   = torch.nn.Parameter(torch.zeros(4))
+        policy_nores[9].weight = torch.nn.Parameter(torch.zeros(2, 4))
+        policy_nores[9].bias   = torch.nn.Parameter(torch.zeros(2))
+    else:
+        policy_nores[5].weight = torch.nn.Parameter(torch.zeros(2, 7))
+        policy_nores[5].bias   = torch.nn.Parameter(torch.zeros(2))
 
     policy_nores[1].weight[:-2] = policy[1].weight
     policy_nores[1].weight[-2:] = torch.nn.Parameter(torch.eye(2))
@@ -69,10 +115,23 @@ with torch.no_grad():
     policy_nores[3].weight[-2:,-2:] = torch.nn.Parameter(torch.eye(2))
     policy_nores[3].bias[:-2] = policy[3].bias
 
-    policy_nores[5].weight[:,:-2] = policy[5].weight
-    policy_nores[5].weight[:,-2:] = torch.nn.Parameter(A)
-    policy_nores[5].bias = torch.nn.Parameter(policy[5].bias - A.matmul(torch.Tensor([10.0, 10.0])))
+    if u_limits is not None:
+        print(policy_nores[5].weight.shape, policy[5].weight.shape)
+        policy_nores[5].weight[:-2,:-2] = policy[5].weight
+        policy_nores[5].weight[-2:,-2:] = torch.nn.Parameter(torch.eye(2))
+        policy_nores[5].bias[:-2] = policy[5].bias
 
+        policy_nores[7].weight[:-2,:-2] = policy[7].weight
+        policy_nores[7].weight[-2:,-2:] = torch.nn.Parameter(torch.eye(2))
+        policy_nores[7].bias[:-2] = policy[7].bias
+
+        policy_nores[9].weight[:,:-2] = policy[9].weight
+        policy_nores[9].weight[:,-2:] = torch.nn.Parameter(A)
+        policy_nores[9].bias = torch.nn.Parameter(policy[9].bias - A.matmul(torch.Tensor([10.0, 10.0])))
+    else:
+        policy_nores[5].weight[:,:-2] = policy[5].weight
+        policy_nores[5].weight[:,-2:] = torch.nn.Parameter(A)
+        policy_nores[5].bias = torch.nn.Parameter(policy[5].bias - A.matmul(torch.Tensor([10.0, 10.0])))
 
 def forward(x, policy):
     return nn.functional.linear(x, A, bias=None) + policy(x)
@@ -80,4 +139,7 @@ def forward(x, policy):
 print(forward(torch.Tensor([[1.0, 1.0]]), policy))
 print(policy_nores(torch.Tensor([[1.0, 1.0]])))
 
-torch.save(policy_nores.state_dict(), 'doubleintegrator.pt')
+if u_limits is not None:
+    torch.save(policy_nores.state_dict(), 'doubleintegrator.pt')
+else:
+    torch.save(policy_nores.state_dict(), 'doubleintegrator_ulimits1.pt')

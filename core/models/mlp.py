@@ -7,8 +7,8 @@ class Flatten(nn.Module):
 def mlp():
     model = nn.Sequential(
         Flatten(),
-        nn.utils.spectral_norm(nn.Linear(784, 20)),
+        nn.Linear(784, 64),
         nn.ReLU(),
-        nn.Linear(20, 10)
+        nn.Linear(64, 10)
     )
     return model

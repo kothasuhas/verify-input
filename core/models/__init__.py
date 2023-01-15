@@ -5,7 +5,7 @@ from .mlp import mlp
 from .i_featurizer import featurizer
 from .toy import toy
 from .vae import vae
-from .doubleintegrator_nonres import doubleintegrator_nonres
+from .doubleintegrator_nonres import doubleintegrator_nonres, doubleintegrator_nonres_ulimits
 
 def create_model(name, device):
     """
