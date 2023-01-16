@@ -38,7 +38,13 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
 
 
     def get_initial_input_branch(model, H, d):
-        resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=torch.Tensor(input_lbs), input_ubs=torch.Tensor(input_ubs), H=H, d=d)
+        resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(
+            model=model,
+            input_lbs=torch.Tensor(input_lbs),
+            input_ubs=torch.Tensor(input_ubs),
+            H=H,
+            d=d
+        )
         initial_input_branch = InputBranch(
             input_lbs=torch.Tensor(input_lbs),
             input_ubs=torch.Tensor(input_ubs),

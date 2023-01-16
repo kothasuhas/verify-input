@@ -67,12 +67,21 @@ def _interval_bounds(
     biases: List[torch.Tensor],  # [(feat)]
     input_lbs: torch.Tensor,  # (featInputLayer)
     input_ubs: torch.Tensor,  # (featInputLayer)
+    initial_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
+    initial_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
 ) -> Tuple[
     List[torch.Tensor],  # (feat)
     List[torch.Tensor],  # (feat)
 ]:
     input_lbs = deepcopy(input_lbs)
     input_ubs = deepcopy(input_ubs)
+
+    if initial_lbs is not None:
+        assert initial_ubs is not None
+        input_lbs = torch.max(input_lbs, initial_lbs[0])
+        input_ubs = torch.min(input_ubs, initial_ubs[0])
+    else:
+        assert initial_ubs is None
 
     lbs: List[torch.Tensor] = [input_lbs]  # (feat)
     ubs: List[torch.Tensor] = [input_ubs]  # (feat)
@@ -83,6 +92,12 @@ def _interval_bounds(
         w = weights[i]
         pre_activation_lbs = torch.where(w > 0, w, 0) @ post_activation_lbs + torch.where(w < 0, w, 0) @ post_activation_ubs + biases[i]
         pre_activation_ubs = torch.where(w > 0, w, 0) @ post_activation_ubs + torch.where(w < 0, w, 0) @ post_activation_lbs + biases[i]
+        if initial_lbs is not None:
+            assert initial_ubs is not None
+            pre_activation_lbs = torch.max(pre_activation_lbs, initial_lbs[i])
+            pre_activation_ubs = torch.min(pre_activation_ubs, initial_ubs[i])
+        else:
+            assert initial_ubs is None
         lbs.append(pre_activation_lbs)
         ubs.append(pre_activation_ubs)
         post_activation_lbs = pre_activation_lbs.clamp(min=0)
@@ -96,11 +111,13 @@ def initialize_bounds(
     biases: List[torch.Tensor],  # [(feat)]
     input_lbs: torch.Tensor,  # (featInputLayer)
     input_ubs: torch.Tensor,  # (featInputLayer)
+    initial_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
+    initial_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
 ) -> Tuple[
     List[torch.Tensor],  # (feat)
     List[torch.Tensor],  # (feat)
 ]:
-    lbs, ubs = _interval_bounds(num_layers, weights, biases, input_lbs, input_ubs)
+    lbs, ubs = _interval_bounds(num_layers, weights, biases, input_lbs, input_ubs, initial_lbs=initial_lbs, initial_ubs=initial_ubs)
     lbs, ubs = tighten_bounds_with_rsip(num_layers, weights, biases, input_lbs, input_ubs, initial_lbs=lbs, initial_ubs=ubs)
     return lbs, ubs
 
