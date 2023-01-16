@@ -56,9 +56,16 @@ class InputBranch:
         new_input_lbs = torch.Tensor([new_x_lbs, new_y_lbs])
         new_input_ubs = torch.Tensor([new_x_ubs, new_y_ubs])
 
-        new_resulting_lbs, new_resulting_ubs = initialize_bounds(len(self.weights) - 1, self.weights, self.biases, new_input_lbs, new_input_ubs)
-        new_resulting_lbs = [torch.max(x, y) for x, y in zip(new_resulting_lbs, self.resulting_lbs)]
-        new_resulting_ubs = [torch.min(x, y) for x, y in zip(new_resulting_ubs, self.resulting_ubs)]
+        new_resulting_lbs, new_resulting_ubs = initialize_bounds(
+            num_layers=len(self.weights) - 1,
+            weights=self.weights,
+            biases=self.biases,
+            input_lbs=new_input_lbs,
+            input_ubs=new_input_ubs,
+            initial_lbs=self.resulting_lbs,
+            initial_ubs=self.resulting_ubs
+        )
+
         new_branch = InputBranch(
             input_lbs=new_input_lbs,
             input_ubs=new_input_ubs,
