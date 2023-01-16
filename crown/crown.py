@@ -61,7 +61,7 @@ def initialize_params(
 
     return gamma, alphas
 
-def initialize_bounds(
+def _interval_bounds(
     num_layers: int,
     weights: List[torch.Tensor],  # (feat_out, feat_in)
     biases: List[torch.Tensor],  # [(feat)]
@@ -88,6 +88,149 @@ def initialize_bounds(
         post_activation_lbs = pre_activation_lbs.clamp(min=0)
         post_activation_ubs = pre_activation_ubs.clamp(min=0)
 
+    return lbs, ubs
+
+def initialize_bounds(
+    num_layers: int,
+    weights: List[torch.Tensor],  # (feat_out, feat_in)
+    biases: List[torch.Tensor],  # [(feat)]
+    input_lbs: torch.Tensor,  # (featInputLayer)
+    input_ubs: torch.Tensor,  # (featInputLayer)
+) -> Tuple[
+    List[torch.Tensor],  # (feat)
+    List[torch.Tensor],  # (feat)
+]:
+    lbs, ubs = _interval_bounds(num_layers, weights, biases, input_lbs, input_ubs)
+    lbs, ubs = tighten_bounds_with_rsip(num_layers, weights, biases, input_lbs, input_ubs, initial_lbs=lbs, initial_ubs=ubs)
+    return lbs, ubs
+
+
+def _relation_to_bounds(
+    relation_lbs: torch.Tensor,  # (feat, featInputLayer+1)
+    relation_ubs: torch.Tensor,  # (feat, featInputLayer+1)
+    input_lbs: torch.Tensor,  # (featInputLayer)
+    input_ubs: torch.Tensor,  # (featInputLayer)
+) -> Tuple[
+    torch.Tensor,  # (feat)
+    torch.Tensor,  # (feat)
+]:
+    ubs = torch.matmul(torch.where(relation_ubs > 0, relation_ubs, 0)[:, :-1], input_ubs)  # (feat)
+    ubs += torch.matmul(torch.where(relation_ubs < 0, relation_ubs, 0)[:, :-1], input_lbs)  # (feat)
+    ubs += relation_ubs[:, -1]
+    lbs = torch.matmul(torch.where(relation_lbs > 0, relation_lbs, 0)[:, :-1], input_lbs)  # (feat)
+    lbs += torch.matmul(torch.where(relation_lbs < 0, relation_lbs, 0)[:, :-1], input_ubs)  # (feat)
+    lbs += relation_lbs[:, -1]
+    assert ubs.dim() == 1
+    assert ubs.size(0) == relation_lbs.size(0)
+    return lbs, ubs
+
+def tighten_bounds_with_rsip(
+    num_layers: int,
+    weights: List[torch.Tensor],  # (feat_out, feat_in)
+    biases: List[torch.Tensor],  # [(feat)]
+    input_lbs: torch.Tensor,  # (featInputLayer)
+    input_ubs: torch.Tensor,  # (featInputLayer)
+    initial_lbs: List[torch.Tensor],  # (feat)
+    initial_ubs: List[torch.Tensor],  # (feat)
+    alphas: Optional[List[Optional[torch.Tensor]]] = None,  # List[Optional[torch.Tensor]],  # [(batch, feat)]
+) -> Tuple[
+    List[torch.Tensor],  # (feat)
+    List[torch.Tensor],  # (feat)
+]:
+    lbs: List[torch.Tensor] = [input_lbs]  # (feat)
+    ubs: List[torch.Tensor] = [input_ubs]  # (feat)
+    if initial_lbs is not None:
+        lbs[0] = torch.max(input_lbs, initial_lbs[0])
+        ubs[0] = torch.min(input_ubs, initial_ubs[0])
+
+    relaxations = [None]
+    for layeri in range(1, num_layers):
+        num_neurons_layeri = weights[layeri].size(0)
+        relation_lbs = torch.eye(num_neurons_layeri, num_neurons_layeri + 1)  # (featLayerI, featLayerI + 1)
+        relation_ubs = torch.eye(num_neurons_layeri, num_neurons_layeri + 1)  # (featLayerI, featLayerI + 1)
+        for layerj in range(layeri, 0, -1):
+            w = weights[layerj]  # (featLayer(J+1), featLayerJ)
+            b = biases[layerj]
+
+            new_relation_lbs = torch.full((relation_lbs.size(0), w.size(1) + 1), torch.nan)  # (featLayerI, featLayerJ + 1)
+            new_relation_lbs[:, :-1] = torch.matmul(relation_lbs[:, :-1], w)  # (featLayerI, featLayerJ)
+            new_relation_lbs[:, -1] = relation_lbs[:, -1] + torch.matmul(relation_lbs[:, :-1], b)
+
+            new_relation_ubs = torch.full((relation_ubs.size(0), w.size(1) + 1), torch.nan)  # (featLayerI, featLayerJ + 1)
+            new_relation_ubs[:, :-1] = torch.matmul(relation_ubs[:, :-1], w)  # (featLayerI, featLayerJ)
+            new_relation_ubs[:, -1] = relation_ubs[:, -1] + torch.matmul(relation_ubs[:, :-1], b)
+
+            if layerj > 1:
+                relaxation_w_lbs, relaxation_b_lbs, relaxation_w_ubs, relaxation_b_ubs = relaxations[layerj-1]  # (featLayerJ)
+
+                relation_lbs = new_relation_lbs
+                relation_ubs = new_relation_ubs
+                new_relation_lbs = torch.full_like(relation_lbs, torch.nan)
+                new_relation_ubs = torch.full_like(relation_ubs, torch.nan)
+
+                pos_relation_lbs = torch.where(relation_lbs > 0, relation_lbs, 0)  # (featLayerI, featLayerJ + 1)
+                neg_relation_lbs = torch.where(relation_lbs < 0, relation_lbs, 0)  # (featLayerI, featLayerJ + 1)
+                pos_relation_ubs = torch.where(relation_ubs > 0, relation_ubs, 0)  # (featLayerI, featLayerJ + 1)
+                neg_relation_ubs = torch.where(relation_ubs < 0, relation_ubs, 0)  # (featLayerI, featLayerJ + 1)
+
+                new_relation_lbs[:, :-1] = pos_relation_lbs[:, :-1] * relaxation_w_lbs
+                new_relation_lbs[:, :-1] += neg_relation_lbs[:, :-1] * relaxation_w_ubs
+                new_relation_ubs[:, :-1] = pos_relation_ubs[:, :-1] * relaxation_w_ubs
+                new_relation_ubs[:, :-1] += neg_relation_ubs[:, :-1] * relaxation_w_lbs
+
+                new_relation_lbs[:, -1] = relation_lbs[:, -1] + torch.matmul(pos_relation_lbs[:, :-1], relaxation_b_lbs) + torch.matmul(neg_relation_lbs[:, :-1], relaxation_b_ubs)
+                new_relation_ubs[:, -1] = relation_ubs[:, -1] + torch.matmul(pos_relation_ubs[:, :-1], relaxation_b_ubs) + torch.matmul(neg_relation_ubs[:, :-1], relaxation_b_lbs)
+
+            relation_lbs = new_relation_lbs
+            relation_ubs = new_relation_ubs
+
+            new_lbs_layeri, new_ubs_layeri = _relation_to_bounds(relation_lbs, relation_ubs, lbs[layerj-1], ubs[layerj-1])
+            if layerj == layeri:
+                old_lbs_layeri = initial_lbs[layeri]
+                old_ubs_layeri = initial_ubs[layeri]
+            new_lbs_layeri = torch.max(new_lbs_layeri, old_lbs_layeri)
+            new_ubs_layeri = torch.min(new_ubs_layeri, old_ubs_layeri)
+            old_lbs_layeri = new_lbs_layeri
+            old_ubs_layeri = new_ubs_layeri
+
+        new_lbs, new_ubs = new_lbs_layeri, new_ubs_layeri
+        new_relaxations_w_lbs = torch.full(new_lbs.size(), torch.nan)
+        new_relaxations_b_lbs = torch.full(new_lbs.size(), torch.nan)
+        new_relaxations_w_ubs = torch.full(new_lbs.size(), torch.nan)
+        new_relaxations_b_ubs = torch.full(new_lbs.size(), torch.nan)
+
+        relu_off_mask = (new_ubs <= 0)
+        new_relaxations_w_lbs[relu_off_mask] = 0
+        new_relaxations_b_lbs[relu_off_mask] = 0
+        new_relaxations_w_ubs[relu_off_mask] = 0
+        new_relaxations_b_ubs[relu_off_mask] = 0
+
+        relu_on_mask = (~relu_off_mask) & (new_lbs >= 0)
+        new_relaxations_w_lbs[relu_on_mask] = 1
+        new_relaxations_b_lbs[relu_on_mask] = 0
+        new_relaxations_w_ubs[relu_on_mask] = 1
+        new_relaxations_b_ubs[relu_on_mask] = 0
+
+        relu_unstable_mask = (~relu_off_mask) & (~relu_on_mask)
+        positive_dominates_mask = new_ubs > -new_lbs
+        if alphas is None:
+            new_relaxations_w_lbs[relu_unstable_mask & positive_dominates_mask] = 1
+            new_relaxations_b_lbs[relu_unstable_mask & positive_dominates_mask] = 0
+            new_relaxations_w_lbs[relu_unstable_mask & ~positive_dominates_mask] = 0
+            new_relaxations_b_lbs[relu_unstable_mask & ~positive_dominates_mask] = 0
+        else:
+            new_relaxations_w_lbs[relu_unstable_mask] = alphas[layeri][relu_unstable_mask]
+            new_relaxations_b_lbs[relu_unstable_mask] = 0
+            print("Alphas not none")
+            exit()
+
+        new_relaxations_w_ubs[relu_unstable_mask] = (new_ubs / (new_ubs - new_lbs))[relu_unstable_mask]
+        new_relaxations_b_ubs[relu_unstable_mask] = (-new_lbs * new_ubs / (new_ubs - new_lbs))[relu_unstable_mask]
+
+        relaxations.append((new_relaxations_w_lbs, new_relaxations_b_lbs, new_relaxations_w_ubs, new_relaxations_b_ubs))
+
+        lbs.append(new_lbs)
+        ubs.append(new_ubs)
     return lbs, ubs
 
 def initialize_all(

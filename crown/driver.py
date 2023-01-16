@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from .model_utils import get_num_layers, get_num_neurons, get_direction_layer_pairs
 from .lp import get_optimized_grb_result, get_triangle_grb_model
-from .crown import initialize_all, optimize_bound, initialize_bounds
+from .crown import initialize_all, optimize_bound, initialize_bounds, tighten_bounds_with_rsip
 from .plot_utils import plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
@@ -79,7 +79,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
                     break
                 # batch size = features in layer i
                 gamma = branch.params_dict[direction][layeri]['gamma']  # (batch, 1, 1)
-                alphas = branch.params_dict[direction][layeri]['alphas']  # [(feat, feat)]
+                alphas = branch.params_dict[direction][layeri]['alphas']  # [(batch, feat)]
                 optim = torch.optim.SGD([
                     {'params': gamma, 'lr' : 0.001}, 
                     {'params': alphas[1:]},
@@ -107,6 +107,12 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
                         gamma.data = torch.clamp(gamma.data, min=0)
                         for i in range(1, len(alphas)):
                             alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+            branch.resulting_lbs, branch.resulting_ubs = tighten_bounds_with_rsip(num_layers, branch.weights, branch.biases, branch.input_lbs, branch.input_ubs, initial_lbs=branch.resulting_lbs, initial_ubs=branch.resulting_ubs, alphas=None)
+            for l, u in zip(branch.resulting_lbs, branch.resulting_ubs):
+                if not torch.all(l <= u):
+                    abort = True
+                    break
+
             if abort:
                 break
             m, xs, zs = get_triangle_grb_model(model, branch.resulting_ubs, branch.resulting_lbs, H, d, input_lbs, input_ubs)
