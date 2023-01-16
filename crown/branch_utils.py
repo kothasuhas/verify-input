@@ -33,8 +33,9 @@ class InputBranch:
     resulting_ubs: List[torch.Tensor]
     weights: List[torch.Tensor]
     biases: List[torch.Tensor]
+    remaining_max_branching_depth: int
     
-    def __init__(self, input_lbs, input_ubs, params_dict, resulting_lbs, resulting_ubs, weights, biases) -> None:
+    def __init__(self, input_lbs, input_ubs, params_dict, resulting_lbs, resulting_ubs, weights, biases, remaining_max_branching_depth) -> None:
         self.input_lbs = input_lbs
         self.input_ubs = input_ubs
         self.params_dict = params_dict
@@ -42,6 +43,7 @@ class InputBranch:
         self.resulting_ubs = resulting_ubs
         self.weights = weights
         self.biases = biases
+        self.remaining_max_branching_depth = remaining_max_branching_depth
 
     def _create_child(self, x_left: bool, y_left: bool):
         x_input_size = self.input_ubs[0] - self.input_lbs[0]
@@ -57,7 +59,16 @@ class InputBranch:
         new_resulting_lbs, new_resulting_ubs = initialize_bounds(len(self.weights) - 1, self.weights, self.biases, new_input_lbs, new_input_ubs)
         new_resulting_lbs = [torch.max(x, y) for x, y in zip(new_resulting_lbs, self.resulting_lbs)]
         new_resulting_ubs = [torch.min(x, y) for x, y in zip(new_resulting_ubs, self.resulting_ubs)]
-        new_branch = InputBranch(input_lbs=new_input_lbs, input_ubs=new_input_ubs, params_dict=deepcopy(self.params_dict), resulting_lbs=new_resulting_lbs, resulting_ubs=new_resulting_ubs, weights=self.weights, biases=self.biases)
+        new_branch = InputBranch(
+            input_lbs=new_input_lbs,
+            input_ubs=new_input_ubs,
+            params_dict=deepcopy(self.params_dict),
+            resulting_lbs=new_resulting_lbs,
+            resulting_ubs=new_resulting_ubs,
+            weights=self.weights,
+            biases=self.biases,
+            remaining_max_branching_depth=None if self.remaining_max_branching_depth is None else self.remaining_max_branching_depth - 1
+        )
 
         return new_branch
 

@@ -19,4 +19,4 @@ input_ubs = [2.0, 2.0]
 
 num_iters = 5
 
-optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, contour=False)
+optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching_depth=None, contour=False)

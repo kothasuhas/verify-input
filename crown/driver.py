@@ -17,7 +17,7 @@ from .crown import initialize_all, optimize_bound, initialize_bounds
 from .plot_utils import plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
-def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True, verbose_plotting=False):
+def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching_depth=None, contour=True, verbose_plotting=False):
     plt.ion()
     plt.show()
 
@@ -39,7 +39,15 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
 
     def get_initial_input_branch(model, H, d):
         resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(model=model, input_lbs=torch.Tensor(input_lbs), input_ubs=torch.Tensor(input_ubs), H=H, d=d)
-        initial_input_branch = InputBranch(input_lbs=torch.Tensor(input_lbs), input_ubs=torch.Tensor(input_ubs), params_dict=params_dict, resulting_lbs=resulting_lbs, resulting_ubs=resulting_ubs, weights=weights, biases=biases)
+        initial_input_branch = InputBranch(
+            input_lbs=torch.Tensor(input_lbs),
+            input_ubs=torch.Tensor(input_ubs),
+            params_dict=params_dict,
+            resulting_lbs=resulting_lbs,
+            resulting_ubs=resulting_ubs,
+            weights=weights,
+            biases=biases,
+            remaining_max_branching_depth=max_branching_depth)
         return initial_input_branch
 
     branches = [get_initial_input_branch(model, H, d)]
@@ -125,7 +133,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
             excluded_input_regions.append(ExcludedInputRegions(branch.input_lbs.cpu(), branch.input_ubs.cpu()))
         else:
             approximated_input_bounds += pending_approximated_input_bounds
-            if perform_branching:
+            if branch.remaining_max_branching_depth is None or branch.remaining_max_branching_depth > 0:
                 branches += branch.split()
     plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
     input("Press enter to terminate")

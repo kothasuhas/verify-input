@@ -27,4 +27,4 @@ input_ubs = [5.0, 5.0]
 
 num_iters = 10
 
-optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=False)
+optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching_depth=1, contour=False, verbose_plotting=True)
