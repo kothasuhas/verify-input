@@ -17,15 +17,13 @@ from .crown import initialize_all, optimize_bound, initialize_bounds
 from .plot_utils import plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
-def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True):
+def optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, perform_branching=True, contour=True, plot=True):
     plt.ion()
     plt.show()
 
     # Output the Gurobi-Text now
     gp.Model()
 
-    # based on https://math.stackexchange.com/a/4388888/50742
-    cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(num_cs)]
     for i, c in enumerate(cs):
         # very small values can cause numerical instability/inf/nans during plotting
         if np.abs(c[0]) < 0.0001:
@@ -118,7 +116,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
                 abort = True
                 break
 
-            plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
+            if plot: plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
             plot_number += 1
         if abort:
             excluded_input_regions.append(ExcludedInputRegions(branch.input_lbs.cpu(), branch.input_ubs.cpu()))
@@ -126,5 +124,5 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, perform_branc
             approximated_input_bounds += pending_approximated_input_bounds
             if perform_branching:
                 branches += branch.split()
-    plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
+    if plot: plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
     input("Press enter to terminate")

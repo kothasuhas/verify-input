@@ -1,10 +1,9 @@
-import torch
-
 from .convnet import convnet
 from .mlp import mlp
 from .toy import toy
 from .vae import vae
 from .doubleintegrator_nonres import doubleintegrator_nonres, doubleintegrator_nonres_ulimits
+from .decoder_mlp import decoder_mlp
 
 def create_model(name, device):
     """

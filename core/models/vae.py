@@ -1,3 +1,5 @@
+# sourced from https://github.com/L1aoXingyu/pytorch-beginner/blob/master/08-AutoEncoder/Variational_autoencoder.py
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,16 +20,18 @@ class Encoder(nn.Module):
         h1 = F.relu(self.fc1(x))
         return self.fc21(h1), self.fc22(h1)
 
-class Decoder(nn.Module):
+class Decoder(nn.Sequential):
     def __init__(self):
         super(Decoder, self).__init__()
 
         self.fc1 = nn.Linear(latent_dim, 400)
+        self.relu = nn.ReLU()
         self.fc2 = nn.Linear(400, 784)
 
     def forward(self, z):
-        h1 = F.relu(self.fc1(z))
-        h2 = self.fc2(h1)
+        h1 = self.fc1(z)
+        z1 = self.relu(h1)
+        h2 = self.fc2(z1)
         h2 = h2.view(h2.size(0), 1, 28, 28)
         return h2
 

@@ -27,19 +27,23 @@ def _simplify_network(all_layers):
             new_all_layers.append(layer)
     return torch.nn.Sequential(*new_all_layers)
 
-def load_model(model_name, file_name, H: torch.Tensor, d: torch.Tensor, stack_n_times: int = 1) -> trainer.nn.Sequential:
+def load_model(model_name, file_name, stack_n_times: int = 1) -> trainer.nn.Sequential:
     class args():
         def __init__(self):
             self.model = model_name
             self.num_epochs = 1
             self.lr = 0.1
+            self.optimizer = 'Adam'
+            self.sched_pct = 0.0
 
     t = trainer.Trainer(args())
     t.load_model(file_name)
     t.model.eval()
 
-    model = _simplify_network(t.model * stack_n_times)
-    return model, H, d
+    if stack_n_times == 1:
+        return t.model
+    else:
+        return _simplify_network(t.model * stack_n_times)
 
 
 def get_num_layers(model: trainer.nn.Sequential):

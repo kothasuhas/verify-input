@@ -13,7 +13,7 @@ def _get_grb_model(model: trainer.nn.Sequential, layers: int, input_lbs: List[fl
     m.Params.OutputFlag = 0
 
     # Create variables
-    input = m.addMVar(shape=2, lb=input_lbs, ub=input_ubs, name="input")
+    input = m.addMVar(shape=len(input_lbs), lb=input_lbs, ub=input_ubs, name="input")
     xs = []
     zs = [input]
     for l in range(layers-1):
