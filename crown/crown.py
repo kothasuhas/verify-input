@@ -316,9 +316,11 @@ def get_diagonals(
 ) -> Tuple[
     List[Optional[torch.Tensor]],  # [(dir==2, batch, feat_outputLayer==1, feat)]
     List[Optional[torch.Tensor]],  # [(dir==2, batch, feat, feat)]
+    Dict[int, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]  # layeri: (dir==2, batch, feat)
 ]:
     A: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(dir==2, batch, feat_outputLayer==1, feat)]
     D: List[Optional[torch.Tensor]] = [None for _ in range(L)]  # [(dir==2, batch, feat, feat)]
+    masks = {}
     assert len(weights) == L + 1
     for layeri in range(L-1, 0, -1):  # L-1, ..., 1
         batch_size = alphas[1].size(1)
@@ -347,6 +349,7 @@ def get_diagonals(
         D[layeri] = torch.zeros(2, batch_size, num_feat, num_feat)  # (dir==2, batch, feat, feat)
 
         relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, layeri)
+        masks[layeri] = (relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask)
         assert len(set(x.shape for x in [relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask, ubs[layeri], lbs[layeri]]))  # all (dir==2, batch, feat)
         assert D[layeri].shape == (2, batch_size, relu_on_mask.size(2), relu_on_mask.size(2))  # (dir==2, batch, feat, feat)
         D[layeri][relu_on_mask.diag_embed()] = 1
@@ -354,13 +357,14 @@ def get_diagonals(
         D[layeri][relu_lower_bound_mask.diag_embed()] = alphas[layeri][relu_lower_bound_mask]
         D[layeri][relu_upper_bound_mask.diag_embed()] = (ubs[layeri] / (ubs[layeri] - lbs[layeri])).tile((2, batch_size, 1))[relu_upper_bound_mask]
 
-    return A, D
+    return A, D, masks
 
 def get_bias_lbs(
     A: List[Optional[torch.Tensor]],  # [(dir==2, batch, feat_outputLayer==1, feat)]
     lbs: List[torch.Tensor],  # [(feat)]
     ubs: List[torch.Tensor],  # [(feat)]
-    L: int
+    L: int,
+    masks: Dict[int, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],  # layeri: (dir==2, batch, feat)
 ) -> List[Optional[torch.Tensor]]:  # [(dir==2, batch, feat)]
 
     bias_lbs: List[Optional[torch.Tensor]] = [None]  # [(dir==2, batch, feat)]
@@ -371,7 +375,7 @@ def get_bias_lbs(
         assert A[i] is not None
         num_feat = A[i].size(3)
         bias_lbs.append(torch.zeros(2, batch_size, num_feat))  # (dir==2, batch, feat)
-        relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = _get_relu_state_masks(lbs, ubs, A, i)
+        relu_on_mask, relu_off_mask, relu_lower_bound_mask, relu_upper_bound_mask = masks[i]
         bias_lbs[i][relu_on_mask] = 0
         bias_lbs[i][relu_off_mask] = 0
         bias_lbs[i][relu_lower_bound_mask] = 0
@@ -444,8 +448,11 @@ def get_crown_bounds(
         assert biases[-1].size(2) == 1
 
 
-    A, D = get_diagonals(weights, lbs, ubs, alphas, L)  # [(dir==2, batch, feat_outputLayer==1, feat)], [(dir==2, batch, feat, feat)]
-    bias_lbs = get_bias_lbs(A, lbs, ubs, L)  # [(dir==2, batch, feat)]
+    A, D, masks = get_diagonals(weights, lbs, ubs, alphas, L)
+    # A: [(dir==2, batch, feat_outputLayer==1, feat)]
+    # D: [(dir==2, batch, feat, feat)]
+    # masks: layeri: (dir==2, batch, feat)
+    bias_lbs = get_bias_lbs(A, lbs, ubs, L, masks)  # [(dir==2, batch, feat)]
     Omega = get_Omega(weights, biases, D, L, batch_size)  # [(dir==2, batch, feat_outputLayer==1, feat)]
 
     a_crown = Omega[1].matmul(weights[1])  # (dir==2, batch, feat_outputLayer==1, featInputLayer)
