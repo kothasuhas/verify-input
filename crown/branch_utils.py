@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from copy import deepcopy
 import torch
@@ -36,7 +36,18 @@ class InputBranch:
     remaining_max_branching_depth: int
     optimizers: List[torch.optim.SGD]
     
-    def __init__(self, input_lbs, input_ubs, params_dict, resulting_lbs, resulting_ubs, weights, biases, remaining_max_branching_depth) -> None:
+    def __init__(
+        self,
+        input_lbs,
+        input_ubs,
+        params_dict,
+        resulting_lbs,
+        resulting_ubs,
+        weights,
+        biases,
+        remaining_max_branching_depth,
+        old_optimizers: Optional[List[torch.optim.SGD]] = None
+    ) -> None:
         self.input_lbs = input_lbs
         self.input_ubs = input_ubs
         self.params_dict = params_dict
@@ -45,13 +56,17 @@ class InputBranch:
         self.weights = weights
         self.biases = biases
         self.remaining_max_branching_depth = remaining_max_branching_depth
-        self.optimizers = [
-            torch.optim.SGD([
+        self.optimizers = []
+        for layeri in range(len(self.biases) - 1):
+            opti = torch.optim.SGD([
                 {'params': params_dict[layeri]['gamma'], 'lr' : 0.001},
                 {'params': params_dict[layeri]['alphas'][1:]},
             ], lr=3.0, momentum=0.9, maximize=True)
-            for layeri in range(len(self.biases) - 1)
-        ]
+            if old_optimizers is not None:
+                s = old_optimizers[layeri].state_dict()
+                opti.load_state_dict(s)
+            self.optimizers.append(opti)
+
 
     def _create_child(self, x_left: bool, y_left: bool):
         x_input_size = self.input_ubs[0] - self.input_lbs[0]
@@ -82,7 +97,8 @@ class InputBranch:
             resulting_ubs=new_resulting_ubs,
             weights=self.weights,
             biases=self.biases,
-            remaining_max_branching_depth=None if self.remaining_max_branching_depth is None else self.remaining_max_branching_depth - 1
+            remaining_max_branching_depth=None if self.remaining_max_branching_depth is None else self.remaining_max_branching_depth - 1,
+            old_optimizers=self.optimizers,
         )
 
         return new_branch
