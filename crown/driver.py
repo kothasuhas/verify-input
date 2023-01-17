@@ -87,10 +87,8 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
 
                 gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
                 alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
-                optim = torch.optim.SGD([
-                    {'params': gamma, 'lr' : 0.001}, 
-                    {'params': alphas[1:]},
-                ], lr=3.0, momentum=0.9, maximize=True)
+                optim = branch.optimizers[layeri]
+
                 for _ in range(10):
                     optim.zero_grad(set_to_none=True)
                     loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri)  # (dir==2, batch, 1)

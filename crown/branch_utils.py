@@ -34,6 +34,7 @@ class InputBranch:
     weights: List[torch.Tensor]
     biases: List[torch.Tensor]
     remaining_max_branching_depth: int
+    optimizers: List[torch.optim.SGD]
     
     def __init__(self, input_lbs, input_ubs, params_dict, resulting_lbs, resulting_ubs, weights, biases, remaining_max_branching_depth) -> None:
         self.input_lbs = input_lbs
@@ -44,6 +45,13 @@ class InputBranch:
         self.weights = weights
         self.biases = biases
         self.remaining_max_branching_depth = remaining_max_branching_depth
+        self.optimizers = [
+            torch.optim.SGD([
+                {'params': params_dict[layeri]['gamma'], 'lr' : 0.001},
+                {'params': params_dict[layeri]['alphas'][1:]},
+            ], lr=3.0, momentum=0.9, maximize=True)
+            for layeri in range(len(self.biases) - 1)
+        ]
 
     def _create_child(self, x_left: bool, y_left: bool):
         x_input_size = self.input_ubs[0] - self.input_lbs[0]
