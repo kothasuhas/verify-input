@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from .model_utils import get_num_layers, get_num_neurons, get_layer_indices
 from .lp import get_optimized_grb_result, get_triangle_grb_model
-from .crown import initialize_all, optimize_bound, initialize_bounds, tighten_bounds_with_rsip
+from .crown import initialize_all, initialize_params, optimize_bound, initialize_bounds, tighten_bounds_with_rsip
 from .plot_utils import plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
@@ -72,6 +72,15 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
                 tqdm.write(f"[WARNING] Next branch has invalid bounds at layer {layeri}. That's either a bug, or this input region has no intersection with the target area")
                 abort = True  # we'll skip the optimizations and jump to the end of this loop where the current input region is marked as unreachable
 
+
+        gamma_global, alphas_global = initialize_params(branch.weights, num_layers, 2) 
+        optim = torch.optim.SGD([{'params': gamma_global, 'lr' : 0.001}, {'params': alphas_global[1:]}], lr=3.0, momentum=0.9, maximize=True)
+        for layeri in get_layer_indices(model):
+            gamma = branch.params_dict[layeri]['gamma']  # (dir==2, batch, 1, 1)
+            alphas = branch.params_dict[layeri]['alphas']  # [(dir==2, feat, feat)]
+            optim.add_param_group({'params': gamma, 'lr' : 0.001})
+            optim.add_param_group({'params': alphas[1:]})
+            
         pbar = tqdm(range(num_iters), leave=False)
         last_b = []
         pending_approximated_input_bounds: List[ApproximatedInputBound] = []
@@ -80,37 +89,50 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
                 break
             pending_approximated_input_bounds = []
             pbar.set_description(f"Best solution to first bound: {last_b}")
-            for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
-                if abort:
-                    break
-                # batch size = features in layer i
 
-                gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
-                alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
-                optim = branch.optimizers[layeri]
+            for iteration in range(10 * len(get_layer_indices(model))):
+                optim.zero_grad(set_to_none=True)
 
-                for _ in range(10):
-                    optim.zero_grad(set_to_none=True)
-                    loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri)  # (dir==2, batch, 1)
-                    assert loss.dim() == 3, loss.shape
-                    assert loss.size(0) == 2
-                    assert loss.size(1) == get_num_neurons(model, layeri)
-                    assert loss.size(2) == 1
-                    optimized_bounds = loss.detach().squeeze(dim=-1)  # (dir==2, batch)
-                    loss = loss.sum()
-                    loss.backward()
-                    optim.step()
+                if iteration > 0:
+                    for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
+                        if abort:
+                            break
+                        # batch size = features in layer i
 
-                    with torch.no_grad():
-                        branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], optimized_bounds[0])
-                        branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bounds[1])
+                        gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
+                        alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
+
+                        optimized_bounds = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri)  # (dir==2, batch, 1)
+                        assert optimized_bounds.dim() == 3, optimized_bounds.shape
+                        assert optimized_bounds.size(0) == 2
+                        assert optimized_bounds.size(1) == get_num_neurons(model, layeri)
+                        assert optimized_bounds.size(2) == 1
+
+                        branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], optimized_bounds[0].squeeze(dim=1))
+                        branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bounds[1].squeeze(dim=1))
                         if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
                             tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
                             abort = True
                             break
-                        gamma.data = torch.clamp(gamma.data, min=0)
-                        for i in range(1, len(alphas)):
-                            alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                loss = optimize_bound(branch.weights, branch.biases, gamma_global, alphas_global, branch.resulting_lbs, branch.resulting_ubs, num_layers, 0)  # (2, batch, 1)
+                loss = loss.sum()
+                loss.backward(retain_graph=True)
+                optim.step()
+
+                for layeri in get_layer_indices(model):
+                    gamma = branch.params_dict[layeri]['gamma']  # (dir==2, batch, 1, 1)
+                    alphas = branch.params_dict[layeri]['alphas']  # [(dir==2, feat, feat)]
+                    gamma.data = torch.clamp(gamma.data, min=0)
+                    for i in range(1, len(alphas)):
+                        alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                gamma_global.data = torch.clamp(gamma_global.data, min=0)
+                for i in range(1, len(alphas_global)):
+                    alphas_global[i].data = alphas_global[i].data.clamp(min=0.0, max=1.0)
+                # for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
+                #     branch.resulting_lbs[layeri] = branch.resulting_lbs[layeri].detach()
+                #     branch.resulting_ubs[layeri] = branch.resulting_ubs[layeri].detach()
+
+            # with torch.no_grad():
             branch.resulting_lbs, branch.resulting_ubs = tighten_bounds_with_rsip(num_layers, branch.weights, branch.biases, branch.input_lbs, branch.input_ubs, initial_lbs=branch.resulting_lbs, initial_ubs=branch.resulting_ubs, alphas=None)
             for l, u in zip(branch.resulting_lbs, branch.resulting_ubs):
                 if not torch.all(l <= u):
