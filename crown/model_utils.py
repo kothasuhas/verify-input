@@ -50,6 +50,6 @@ def get_num_layers(model: trainer.nn.Sequential):
 def get_num_neurons(model: trainer.nn.Sequential, layer: int):
     return model[layer*2+1].weight.detach().cpu().numpy().shape[1]
 
-def get_direction_layer_pairs(model: trainer.nn.Sequential):
+def get_layer_indices(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
-    return [(direction, layer) for layer in range(num_layers-1, -1, -1) for direction in ["ubs", "lbs"]]
+    return range(num_layers-1, -1, -1)
