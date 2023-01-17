@@ -1,0 +1,10 @@
+python run_vae.py \
+    --data-dir mnist_data \
+    --log-dir log \
+    --log-desc vae_test \
+    --batch-size 64 \
+    --model vae \
+    --num-epochs 100 \
+    --lr 0.001 \
+    --optimizer Adam \
+    --sched_pct 0.0 \

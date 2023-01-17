@@ -25,7 +25,14 @@ class Trainer(object):
         seed(1)
         self.model = create_model(args.model, device)
         self.args = args
-        self.criterion = nn.CrossEntropyLoss()
+
+        CE = nn.CrossEntropyLoss()
+        def loss_function(x, y, model):
+            out = torch.softmax(model(x),dim=1)
+            loss = CE(out, y)
+            return loss, out
+
+        self.criterion = loss_function
         self.init_optimizer(self.args.num_epochs)
 
     
@@ -33,11 +40,17 @@ class Trainer(object):
         """
         Initialize optimizer and scheduler.
         """
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.args.lr, 
+        if self.args.optimizer == 'Adam':
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.lr)
+        elif self.args.optimizer == 'SGD': 
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.args.lr, 
                                          weight_decay=5e-4, momentum=0.9, nesterov=True)
+        else:
+            raise ValueError('Unsupported optimizer option')
 
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args.lr, 
-                                                             pct_start=0.025, total_steps=int(num_epochs))
+                                                             pct_start=self.args.sched_pct, 
+                                                             total_steps=int(num_epochs))
     
     
     def train(self, dataloader, epoch=0, adversarial=False, verbose=True):
@@ -78,9 +91,7 @@ class Trainer(object):
         Standard training.
         """
         self.optimizer.zero_grad()
-        out = torch.softmax(self.model(x),dim=1)
-        loss = self.criterion(out, y)
-        
+        loss, out = self.criterion(x, y, self.model)
         preds = out.detach()
         batch_metrics = {'loss': loss.item(), 'clean_acc': self.accuracy(y, preds)}
         return loss, batch_metrics

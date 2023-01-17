@@ -9,5 +9,7 @@ parser.add_argument('--model'      , type=str  , required=True)
 parser.add_argument('--saved-model', type=str  , default=None)
 parser.add_argument('--num-epochs' , type=int  , required=True)
 parser.add_argument('--lr'         , type=float, required=True)
+parser.add_argument('--optimizer'  , type=str  , default='SGD')
+parser.add_argument('--sched_pct'  , type=float, default=0.025)
 
 args = parser.parse_args()
