@@ -34,6 +34,7 @@ class InputBranch:
     weights: List[torch.Tensor]
     biases: List[torch.Tensor]
     remaining_max_branching_depth: int
+    last_b_sum: Optional[float]
     optimizers: List[torch.optim.SGD]
     
     def __init__(
@@ -46,6 +47,7 @@ class InputBranch:
         weights,
         biases,
         remaining_max_branching_depth,
+        last_b_sum: Optional[float] = None,
         old_optimizers: Optional[List[torch.optim.SGD]] = None
     ) -> None:
         self.input_lbs = input_lbs
@@ -56,6 +58,7 @@ class InputBranch:
         self.weights = weights
         self.biases = biases
         self.remaining_max_branching_depth = remaining_max_branching_depth
+        self.last_b_sum = last_b_sum
         self.optimizers = []
         for layeri in range(len(self.biases) - 1):
             opti = torch.optim.SGD([
@@ -98,6 +101,7 @@ class InputBranch:
             weights=self.weights,
             biases=self.biases,
             remaining_max_branching_depth=None if self.remaining_max_branching_depth is None else self.remaining_max_branching_depth - 1,
+            last_b_sum=self.last_b_sum,
             old_optimizers=self.optimizers,
         )
 

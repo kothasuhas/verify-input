@@ -25,6 +25,7 @@ num_cs = 20
 input_lbs = [-5.0, -5.0]
 input_ubs = [5.0, 5.0]
 
-num_iters = 10
+max_num_iters = 30
+convergence_threshold = 0.005
 
-optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching_depth=1, contour=False, verbose_plotting=True)
+optimize(model, H, d, num_cs, input_lbs, input_ubs, max_num_iters, convergence_threshold, max_branching_depth=0, contour=False, verbose_plotting=True)

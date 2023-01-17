@@ -17,7 +17,19 @@ from .crown import initialize_all, optimize_bound, initialize_bounds, tighten_bo
 from .plot_utils import plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
-def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching_depth=None, contour=True, verbose_plotting=False):
+def optimize(
+    model,
+    H,
+    d,
+    num_cs,
+    input_lbs,
+    input_ubs,
+    max_num_iters,
+    convergence_threshold: float,
+    max_branching_depth=None,
+    contour=True,
+    verbose_plotting=False
+):
     plt.ion()
     plt.show()
 
@@ -66,22 +78,23 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
         branch = branches[0]
         branches = branches[1:]
 
-        abort = False
+        branch_excluded = False
+        branch_converged = False
         for layeri in range(get_num_layers(model)):
             if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
                 tqdm.write(f"[WARNING] Next branch has invalid bounds at layer {layeri}. That's either a bug, or this input region has no intersection with the target area")
-                abort = True  # we'll skip the optimizations and jump to the end of this loop where the current input region is marked as unreachable
+                branch_excluded = True  # we'll skip the optimizations and jump to the end of this loop where the current input region is marked as unreachable
 
-        pbar = tqdm(range(num_iters), leave=False)
-        last_b = []
+        pbar = tqdm(range(max_num_iters), leave=False)
+        b_sum_improved_once = False
         pending_approximated_input_bounds: List[ApproximatedInputBound] = []
         for _ in pbar:
-            if abort:
+            if branch_excluded or branch_converged:
                 break
             pending_approximated_input_bounds = []
-            pbar.set_description(f"Best solution to first bound: {last_b}")
+            pbar.set_description(f"Sum of best solutions: {branch.last_b_sum}")
             for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
-                if abort:
+                if branch_excluded:
                     break
                 # batch size = features in layer i
 
@@ -106,7 +119,7 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
                         branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bounds[1])
                         if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
                             tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
-                            abort = True
+                            branch_excluded = True
                             break
                         gamma.data = torch.clamp(gamma.data, min=0)
                         for i in range(1, len(alphas)):
@@ -114,32 +127,41 @@ def optimize(model, H, d, num_cs, input_lbs, input_ubs, num_iters, max_branching
             branch.resulting_lbs, branch.resulting_ubs = tighten_bounds_with_rsip(num_layers, branch.weights, branch.biases, branch.input_lbs, branch.input_ubs, initial_lbs=branch.resulting_lbs, initial_ubs=branch.resulting_ubs, alphas=None)
             for l, u in zip(branch.resulting_lbs, branch.resulting_ubs):
                 if not torch.all(l <= u):
-                    abort = True
+                    branch_excluded = True
                     break
 
-            if abort:
+            if branch_excluded:
                 break
-            m, xs, zs = get_triangle_grb_model(model, branch.resulting_ubs, branch.resulting_lbs, H, d, input_lbs, input_ubs)
+            m, _, zs = get_triangle_grb_model(model, branch.resulting_ubs, branch.resulting_lbs, H, d, input_lbs, input_ubs)
                 
             gurobi_infeasible_counter = 0
+            b_sum = 0
             for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
                 b = get_optimized_grb_result(m, c, zs[0])
                 if not b:
                     gurobi_infeasible_counter += 1
                     continue
-                if i == 0:
-                    last_b = b
                 pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), c, b))
+                b_sum += b
             if gurobi_infeasible_counter > 0:
                 tqdm.write("[WARNING] Gurobi determined that the bounds are infeasible. That's either a bug or this input region as no intersection with the target area")
                 assert gurobi_infeasible_counter == len(cs)
-                abort = True
+                branch_excluded = True
                 break
+            if branch.last_b_sum is None:
+                branch.last_b_sum = b_sum
+            if convergence_threshold is not None:
+                if b_sum > branch.last_b_sum + convergence_threshold * len(cs):
+                    b_sum_improved_once = True
+                elif b_sum_improved_once:
+                    branch_converged = True
+            branch.last_b_sum = b_sum
 
             if verbose_plotting:
                 plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
                 plot_number += 1
-        if abort:
+
+        if branch_excluded:
             excluded_input_regions.append(ExcludedInputRegions(branch.input_lbs.cpu(), branch.input_ubs.cpu()))
         else:
             approximated_input_bounds += pending_approximated_input_bounds
