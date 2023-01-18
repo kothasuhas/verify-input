@@ -15,6 +15,17 @@ def doubleintegrator_nonres():
     )
     return model
 
+def doubleintegrator_orig():
+    model = nn.Sequential(
+        Flatten(),
+        nn.Linear(2, 10),
+        nn.ReLU(),
+        nn.Linear(10, 5),
+        nn.ReLU(),
+        nn.Linear(5, 1)
+    )
+    return model
+
 def doubleintegrator_nonres_ulimits():
     model = nn.Sequential(
         Flatten(),

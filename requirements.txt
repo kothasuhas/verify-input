@@ -14,3 +14,5 @@ typing-extensions==4.4.0
 scipy==1.9.3
 torchvision==0.14.1
 matplotlib==3.6.2
+keras==2.11.0
+tensorflow==2.11.0
