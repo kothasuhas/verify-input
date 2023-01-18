@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import List, Optional
 
 import numpy as np
@@ -10,6 +11,11 @@ import core.trainer as trainer
 import matplotlib.pyplot as plt
 
 from .branch_utils import ApproximatedInputBound, ExcludedInputRegions, InputBranch
+
+class PlottingLevel(Enum):
+    NO_PLOTTING = 1
+    FINAL_ONLY = 2
+    ALL_STEPS = 3
 
 def plot2d(
     model: trainer.nn.Sequential,

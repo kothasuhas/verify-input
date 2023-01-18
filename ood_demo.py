@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from crown.driver import optimize
 from crown.model_utils import load_model
+from crown.plot_utils import PlottingLevel
 
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -19,6 +20,20 @@ cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(nu
 input_lbs = [-2.0, -2.0]
 input_ubs = [2.0, 2.0]
 
-num_iters = 5
+max_num_iters = 30
+convergence_threshold = 0.05
+max_branching_depth = 1
+plotting_level = PlottingLevel.FINAL_ONLY
 
-optimize(model, H, d, cs, input_lbs, input_ubs, num_iters, contour=False)
+optimize(
+    model,
+    H,
+    d,
+    cs,
+    input_lbs,
+    input_ubs,
+    max_num_iters,
+    convergence_threshold=convergence_threshold,
+    max_branching_depth=max_branching_depth,
+    plotting_level=plotting_level,
+)
