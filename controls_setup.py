@@ -13,9 +13,8 @@ class Flatten(nn.Module):
 
 u_limits = torch.Tensor([-1.0, 1.0])
 
-json_file = open('model.json', 'r')
-loaded_model_json = json_file.read()
-json_file.close()
+with open('model.json', 'r') as json_file:
+    loaded_model_json = json_file.read()
 loaded_model = model_from_json(loaded_model_json)
 loaded_model.load_weights("model.h5")
 
@@ -26,6 +25,15 @@ policy = nn.Sequential(
     nn.Linear(10, 5),
     nn.ReLU(),
     nn.Linear(5, 2)
+)
+
+orig_model = nn.Sequential(
+    Flatten(),
+    nn.Linear(2, 10),
+    nn.ReLU(),
+    nn.Linear(10, 5),
+    nn.ReLU(),
+    nn.Linear(5, 1)
 )
 
 def keras_layer(i):
@@ -44,6 +52,14 @@ with torch.no_grad():
     policy[3].bias   = keras_layer(3)
     policy[5].weight = torch.nn.Parameter(B.matmul(keras_layer(4)))
     policy[5].bias   = torch.nn.Parameter(B.matmul(keras_layer(5)))
+
+    orig_model[1].weight = keras_layer(0)
+    orig_model[1].bias   = keras_layer(1)
+    orig_model[3].weight = keras_layer(2)
+    orig_model[3].bias   = keras_layer(3)
+    orig_model[5].weight = keras_layer(4)
+    orig_model[5].bias   = keras_layer(5)
+torch.save(orig_model.state_dict(), 'doubleintegrator_orig.pt')
 
 if u_limits is not None:
     # Last b -= u_min
@@ -139,7 +155,7 @@ def forward(x, policy):
 print(forward(torch.Tensor([[1.0, 1.0]]), policy))
 print(policy_nores(torch.Tensor([[1.0, 1.0]])))
 
-if u_limits is not None:
+if u_limits is None:
     torch.save(policy_nores.state_dict(), 'doubleintegrator.pt')
 else:
     torch.save(policy_nores.state_dict(), 'doubleintegrator_ulimits1.pt')
