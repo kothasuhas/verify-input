@@ -21,6 +21,7 @@ d = torch.Tensor([
     ])
 
 model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=5)
+# model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=5)
 
 num_cs = 20
 cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(num_cs)]

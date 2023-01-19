@@ -20,10 +20,10 @@ cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(nu
 input_lbs = [-2.0, -2.0]
 input_ubs = [2.0, 2.0]
 
-max_num_iters = 30
+max_num_iters = 10
 convergence_threshold = 0.05
 max_branching_depth = 1
-plotting_level = PlottingLevel.FINAL_ONLY
+plotting_level = PlottingLevel.ALL_STEPS
 
 optimize(
     model,
