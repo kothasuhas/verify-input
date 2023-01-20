@@ -24,7 +24,11 @@ model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1
 # model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=5)
 
 num_cs = 20
-cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(num_cs)]
+# The driver will bound the input based on cs *both* from above and below,
+# so we don't want to give symmetrical cs values
+# Also, we'll get 2*num_cs many lines in our output
+cs = [[np.cos(2*np.pi*t / (num_cs*2)), np.sin(2*np.pi*t / (num_cs*2))] for t in range(num_cs)]
+cs = torch.Tensor(cs)
 
 input_lbs = [-5.0, -5.0]
 input_ubs = [5.0, 5.0]

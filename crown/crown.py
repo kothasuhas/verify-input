@@ -111,15 +111,41 @@ def initialize_bounds(
     biases: List[torch.Tensor],  # [(feat)]
     input_lbs: torch.Tensor,  # (featInputLayer)
     input_ubs: torch.Tensor,  # (featInputLayer)
+    cs: torch.Tensor,  # (num_cs, featInputLayer)
     initial_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
     initial_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
+    initial_cs_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
+    initial_cs_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
 ) -> Tuple[
-    List[torch.Tensor],  # (feat)
-    List[torch.Tensor],  # (feat)
+    Tuple[
+        List[torch.Tensor],  # [(feat)]
+        List[torch.Tensor],  # [(feat)]
+    ],
+    Tuple[
+        torch.Tensor,  # (num_cs)
+        torch.Tensor,  # (num_cs)
+    ],
 ]:
     lbs, ubs = _interval_bounds(num_layers, weights, biases, input_lbs, input_ubs, initial_lbs=initial_lbs, initial_ubs=initial_ubs)
     lbs, ubs = tighten_bounds_with_rsip(num_layers, weights, biases, input_lbs, input_ubs, initial_lbs=lbs, initial_ubs=ubs)
-    return lbs, ubs
+    if initial_cs_lbs is None:
+        assert initial_cs_ubs is None
+        initial_cs_lbs = torch.full((len(cs),), -torch.inf)
+        initial_cs_ubs = torch.full((len(cs),), torch.inf)
+    else:
+        assert initial_cs_ubs is not None
+
+    with torch.no_grad():
+        cs_lbs: torch.Tensor = torch.max(
+            initial_cs_lbs,
+            torch.matmul(torch.where(cs > 0, cs, 0), lbs[0]) + torch.matmul(torch.where(cs < 0, cs, 0), ubs[0])
+        )
+        cs_ubs: torch.Tensor = torch.min(
+            initial_cs_ubs,
+            torch.matmul(torch.where(cs > 0, cs, 0), ubs[0]) + torch.matmul(torch.where(cs < 0, cs, 0), lbs[0])
+        )
+
+    return (lbs, ubs), (cs_lbs, cs_ubs)
 
 
 def _relation_to_bounds(
@@ -256,9 +282,16 @@ def initialize_all(
     input_ubs: torch.Tensor,  # (featInputLayer)
     H: torch.Tensor,  # (numConstr, 1)
     d: torch.Tensor,  # (numConstr)
+    cs: torch.Tensor,  # (num_cs, featInputLayer)
 ) -> Tuple[
-    List[torch.Tensor],  # [(feat)]
-    List[torch.Tensor],  # [(feat)]
+    Tuple[
+        List[torch.Tensor],  # [(feat)]
+        List[torch.Tensor],  # [(feat)]
+    ],
+    Tuple[
+        torch.Tensor,  # (num_cs)
+        torch.Tensor,  # (num_cs)
+    ],
     Dict,
     List[Optional[torch.Tensor]],  # [(feat_out, feat_in)]
     List[Optional[torch.Tensor]],  # [(feat)]
@@ -266,16 +299,26 @@ def initialize_all(
     num_layers = get_num_layers(model)
     weights, biases = initialize_weights(model, H, d)
 
-    lbs, ubs = initialize_bounds(num_layers, weights, biases, input_lbs, input_ubs)
+    (lbs, ubs), (cs_lbs, cs_ubs) = initialize_bounds(
+        num_layers=num_layers,
+        weights=weights,
+        biases=biases,
+        input_lbs=input_lbs,
+        input_ubs=input_ubs,
+        cs=cs,
+    )
 
     L = get_num_layers(model)
     
     params_dict = {}
     for layeri in get_layer_indices(model):
-        gamma, alphas = initialize_params(weights, L, get_num_neurons(model, layeri))
+        num_params = get_num_neurons(model, layeri)
+        if layeri == 0:
+            num_params += cs.size(0)
+        gamma, alphas = initialize_params(weights, L, num_params)
         params_dict[layeri] = {'gamma' : gamma, 'alphas' : alphas}
 
-    return lbs, ubs, params_dict, weights, biases
+    return (lbs, ubs), (cs_lbs, cs_ubs), params_dict, weights, biases
 
 def _get_relu_state_masks(
     lbs: List[torch.Tensor],  # [(feat)]
@@ -480,6 +523,7 @@ def optimize_bound(
     ubs: List[torch.Tensor],  # [(feat)]
     L: int,
     layeri: int,
+    cs: torch.Tensor,  # (num_cs, featInputLayer)
 ) -> torch.Tensor:  # (dir==2, batch, 1)
     batch_size = gamma.size(1)
 
@@ -515,10 +559,12 @@ def optimize_bound(
     
     
     if layeri == 0:
-        c = torch.empty(2, batch_size, weights[1].size(1))  # (dir==2, batch, featInputLayer==batch)
-        assert weights[1].size(1) == batch_size
-        c[0] = torch.eye(batch_size)
-        c[1] = -torch.eye(batch_size)
+        num_input_features = weights[1].size(1)
+        c = torch.empty(2, batch_size, num_input_features)  # (dir==2, batch==featInputLayer+num_cs, featInputLayer)
+        c[0, :num_input_features, :] = torch.eye(num_input_features)
+        c[0, num_input_features:, :] = cs
+        c[1, :num_input_features, :] = -torch.eye(num_input_features)
+        c[1, num_input_features:, :] = -cs
         a_crown, c_crown = get_crown_bounds(weights, biases, gamma, alphas, lbs, ubs, L, batch_size)
         # a_crown (dir==2, batch, 1, featInputLayer)
         # c_crown (dir==2, batch, 1)

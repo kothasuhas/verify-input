@@ -15,7 +15,11 @@ d = torch.Tensor([thresh, thresh])
 model = load_model("toy", "test-weights.pt")
 
 num_cs=20
-cs = [[np.cos(2*np.pi*t / num_cs), np.sin(2*np.pi*t / num_cs)] for t in range(num_cs)]
+# The driver will bound the input based on cs *both* from above and below,
+# so we don't want to give symmetrical cs values
+# Also, we'll get 2*num_cs many lines in our output
+cs = [[np.cos(2*np.pi*t / (num_cs*2)), np.sin(2*np.pi*t / (num_cs*2))] for t in range(num_cs)]
+cs = torch.Tensor(cs)
 
 input_lbs = [-2.0, -2.0]
 input_ubs = [2.0, 2.0]

@@ -17,11 +17,43 @@ from .crown import initialize_all, optimize_bound, initialize_bounds, tighten_bo
 from .plot_utils import PlottingLevel, plot2d
 from .branch_utils import InputBranch, ApproximatedInputBound, ExcludedInputRegions
 
+def _get_initial_input_branch(
+    model,
+    H,
+    d,
+    cs: torch.Tensor,  # (num_cs, featInputLayer)
+    input_lbs,
+    input_ubs,
+    max_branching_depth: Optional[int],
+):
+    (resulting_lbs, resulting_ubs), (cs_lbs, cs_ubs), params_dict, weights, biases = initialize_all(
+        model=model,
+        input_lbs=torch.Tensor(input_lbs),
+        input_ubs=torch.Tensor(input_ubs),
+        H=H,
+        d=d,
+        cs=cs,
+    )
+    initial_input_branch = InputBranch(
+        input_lbs=torch.Tensor(input_lbs),
+        input_ubs=torch.Tensor(input_ubs),
+        params_dict=params_dict,
+        resulting_lbs=resulting_lbs,
+        resulting_ubs=resulting_ubs,
+        cs=cs,
+        cs_lbs=cs_lbs,
+        cs_ubs=cs_ubs,
+        weights=weights,
+        biases=biases,
+        remaining_max_branching_depth=max_branching_depth,
+    )
+    return initial_input_branch
+
 def optimize(
     model,
     H,
     d,
-    cs,
+    cs: torch.Tensor,  # (num_cs, featInputLayer)
     input_lbs,
     input_ubs,
     max_num_iters,
@@ -35,37 +67,21 @@ def optimize(
     # Output the Gurobi-Text now
     gp.Model()
 
-    for i, c in enumerate(cs):
-        # very small values can cause numerical instability/inf/nans during plotting
-        if np.abs(c[0]) < 0.0001:
-            cs[i][0] = 0.0001
-        if np.abs(c[1]) < 0.0001:
-            cs[i][1] = 0.0001
+    # very small values can cause numerical instability/inf/nans during plotting
+    cs = torch.where(torch.abs(cs) > 0.0001, cs, 0.0001)
 
     approximated_input_bounds: List[ApproximatedInputBound] = []
     excluded_input_regions: List[ExcludedInputRegions] = []
 
-
-    def get_initial_input_branch(model, H, d):
-        resulting_lbs, resulting_ubs, params_dict, weights, biases = initialize_all(
-            model=model,
-            input_lbs=torch.Tensor(input_lbs),
-            input_ubs=torch.Tensor(input_ubs),
-            H=H,
-            d=d
-        )
-        initial_input_branch = InputBranch(
-            input_lbs=torch.Tensor(input_lbs),
-            input_ubs=torch.Tensor(input_ubs),
-            params_dict=params_dict,
-            resulting_lbs=resulting_lbs,
-            resulting_ubs=resulting_ubs,
-            weights=weights,
-            biases=biases,
-            remaining_max_branching_depth=max_branching_depth)
-        return initial_input_branch
-
-    branches = [get_initial_input_branch(model, H, d)]
+    branches = [_get_initial_input_branch(
+        model=model,
+        H=H,
+        d=d,
+        cs=cs,
+        input_lbs=input_lbs,
+        input_ubs=input_ubs,
+        max_branching_depth=max_branching_depth
+    )]
 
     plot_number = 0
     num_layers = get_num_layers(model)
@@ -90,39 +106,59 @@ def optimize(
                 break
             pending_approximated_input_bounds = []
             pbar.set_description(f"Sum of best solutions: {branch.last_b_sum}")
-            for _ in tqdm(range(10), desc="Rounds", leave=False):
+            for inner_iteration in tqdm(range(10), desc="Rounds", leave=False):
                 if branch_excluded:
                     break
                 for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
                     if branch_excluded:
                         break
-                    # batch size = features in layer i
+                    # batch size = features in layer i (+ num_cs in the input layer)
 
-                    gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
-                    alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
-                    optim = branch.optimizers[layeri]
+                    # we need to make sure that the bounds on cs_bounds are as tight as possible
+                    # therefore, we spend extra time on those bounds
+                    if layeri == 0 and inner_iteration == 9:
+                        r = 10
+                    else:
+                        r = 1
+                    for _ in range(r):
+                        gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
+                        alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
+                        optim = branch.optimizers[layeri]
 
-                    optim.zero_grad(set_to_none=True)
-                    loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri)  # (dir==2, batch, 1)
-                    assert loss.dim() == 3, loss.shape
-                    assert loss.size(0) == 2
-                    assert loss.size(1) == get_num_neurons(model, layeri)
-                    assert loss.size(2) == 1
-                    optimized_bounds = loss.detach().squeeze(dim=-1)  # (dir==2, batch)
-                    loss = loss.sum()
-                    loss.backward()
-                    optim.step()
+                        optim.zero_grad(set_to_none=True)
+                        loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri, cs)  # (dir==2, batch, 1)
+                        assert loss.dim() == 3, loss.shape
+                        assert loss.size(0) == 2
+                        if layeri == 0:
+                            assert loss.size(1) == get_num_neurons(model, layeri) + cs.size(0)
+                        else:
+                            assert loss.size(1) == get_num_neurons(model, layeri)
+                        assert loss.size(2) == 1
+                        optimized_bounds = loss.detach().squeeze(dim=-1)  # (dir==2, batch)
+                        loss = loss.sum()
+                        loss.backward()
+                        optim.step()
 
-                    with torch.no_grad():
-                        branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], optimized_bounds[0])
-                        branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -optimized_bounds[1])
-                        if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
-                            tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
-                            branch_excluded = True
-                            break
-                        gamma.data = torch.clamp(gamma.data, min=0)
-                        for i in range(1, len(alphas)):
-                            alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                        with torch.no_grad():
+                            if layeri == 0:
+                                num_input_features = get_num_neurons(model, 0)
+                                layer_bounds = optimized_bounds[:, :num_input_features]
+                                cs_bounds = optimized_bounds[:, num_input_features:]
+                                assert cs_bounds.size(1) == cs.size(0)
+                                branch.cs_lbs = torch.max(branch.cs_lbs, cs_bounds[0])
+                                branch.cs_ubs = torch.min(branch.cs_ubs, -cs_bounds[1])
+                            else:
+                                layer_bounds = optimized_bounds
+
+                            branch.resulting_lbs[layeri] = torch.max(branch.resulting_lbs[layeri], layer_bounds[0])
+                            branch.resulting_ubs[layeri] = torch.min(branch.resulting_ubs[layeri], -layer_bounds[1])
+                            if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
+                                tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
+                                branch_excluded = True
+                                break
+                            gamma.data = torch.clamp(gamma.data, min=0)
+                            for i in range(1, len(alphas)):
+                                alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
             branch.resulting_lbs, branch.resulting_ubs = tighten_bounds_with_rsip(num_layers, branch.weights, branch.biases, branch.input_lbs, branch.input_ubs, initial_lbs=branch.resulting_lbs, initial_ubs=branch.resulting_ubs, alphas=None)
             for l, u in zip(branch.resulting_lbs, branch.resulting_ubs):
                 if not torch.all(l <= u):
@@ -131,26 +167,17 @@ def optimize(
 
             if branch_excluded:
                 break
-            m, _, zs = get_triangle_grb_model(model, branch.resulting_ubs, branch.resulting_lbs, H, d, input_lbs, input_ubs)
                 
-            gurobi_infeasible_counter = 0
             b_sum = 0
             for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
-                b = get_optimized_grb_result(m, c, zs[0])
-                if not b:
-                    gurobi_infeasible_counter += 1
-                    continue
-                pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), c, b))
-                b_sum += b
-            if gurobi_infeasible_counter > 0:
-                tqdm.write("[WARNING] Gurobi determined that the bounds are infeasible. That's either a bug or this input region as no intersection with the target area")
-                assert gurobi_infeasible_counter == len(cs)
-                branch_excluded = True
-                break
+                pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), c.cpu().numpy(), branch.cs_lbs[i].cpu().numpy()))
+                pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), -c.cpu().numpy(), -branch.cs_ubs[i].cpu().numpy()))
+                b_sum += branch.cs_lbs[i]
+                b_sum += -branch.cs_ubs[i]
             if branch.last_b_sum is None:
                 branch.last_b_sum = b_sum
             if convergence_threshold is not None:
-                if b_sum > branch.last_b_sum + convergence_threshold * len(cs):
+                if b_sum > branch.last_b_sum + convergence_threshold * 2 * len(cs):
                     b_sum_improved_once = True
                 elif b_sum_improved_once:
                     branch_converged = True

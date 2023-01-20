@@ -31,6 +31,9 @@ class InputBranch:
     params_dict: dict
     resulting_lbs: List[torch.Tensor]
     resulting_ubs: List[torch.Tensor]
+    cs: torch.Tensor  # (num_cs, featInputLayer)
+    cs_lbs: torch.Tensor  # (num_cs)
+    cs_ubs: torch.Tensor  # (num_cs)
     weights: List[torch.Tensor]
     biases: List[torch.Tensor]
     remaining_max_branching_depth: int
@@ -44,6 +47,9 @@ class InputBranch:
         params_dict,
         resulting_lbs,
         resulting_ubs,
+        cs: torch.Tensor,  # (num_cs, featInputLayer)
+        cs_lbs: torch.Tensor,  # (num_cs)
+        cs_ubs: torch.Tensor,  # (num_cs)
         weights,
         biases,
         remaining_max_branching_depth,
@@ -55,6 +61,9 @@ class InputBranch:
         self.params_dict = params_dict
         self.resulting_lbs = resulting_lbs
         self.resulting_ubs = resulting_ubs
+        self.cs = cs
+        self.cs_lbs = cs_lbs
+        self.cs_ubs = cs_ubs
         self.weights = weights
         self.biases = biases
         self.remaining_max_branching_depth = remaining_max_branching_depth
@@ -82,14 +91,17 @@ class InputBranch:
         new_input_lbs = torch.Tensor([new_x_lbs, new_y_lbs])
         new_input_ubs = torch.Tensor([new_x_ubs, new_y_ubs])
 
-        new_resulting_lbs, new_resulting_ubs = initialize_bounds(
+        (new_resulting_lbs, new_resulting_ubs), (new_cs_lbs, new_cs_ubs) = initialize_bounds(
             num_layers=len(self.weights) - 1,
             weights=self.weights,
             biases=self.biases,
             input_lbs=new_input_lbs,
             input_ubs=new_input_ubs,
             initial_lbs=self.resulting_lbs,
-            initial_ubs=self.resulting_ubs
+            initial_ubs=self.resulting_ubs,
+            cs=self.cs,
+            initial_cs_lbs=self.cs_lbs,
+            initial_cs_ubs=self.cs_ubs,
         )
 
         new_branch = InputBranch(
@@ -98,6 +110,9 @@ class InputBranch:
             params_dict=deepcopy(self.params_dict),
             resulting_lbs=new_resulting_lbs,
             resulting_ubs=new_resulting_ubs,
+            cs=self.cs,
+            cs_lbs=new_cs_lbs,
+            cs_ubs=new_cs_ubs,
             weights=self.weights,
             biases=self.biases,
             remaining_max_branching_depth=None if self.remaining_max_branching_depth is None else self.remaining_max_branching_depth - 1,
