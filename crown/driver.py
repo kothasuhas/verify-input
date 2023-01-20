@@ -85,21 +85,23 @@ def optimize(
         pbar = tqdm(range(max_num_iters), leave=False)
         b_sum_improved_once = False
         pending_approximated_input_bounds: List[ApproximatedInputBound] = []
-        for _ in pbar:
+        for iteration in pbar:
             if branch_excluded or branch_converged:
                 break
             pending_approximated_input_bounds = []
             pbar.set_description(f"Sum of best solutions: {branch.last_b_sum}")
-            for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
+            for _ in tqdm(range(10), desc="Rounds", leave=False):
                 if branch_excluded:
                     break
-                # batch size = features in layer i
+                for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
+                    if branch_excluded:
+                        break
+                    # batch size = features in layer i
 
-                gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
-                alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
-                optim = branch.optimizers[layeri]
+                    gamma = branch.params_dict[layeri]['gamma']  # (2, batch, 1, 1)
+                    alphas = branch.params_dict[layeri]['alphas']  # [(2, batch, feat)]
+                    optim = branch.optimizers[layeri]
 
-                for _ in range(10):
                     optim.zero_grad(set_to_none=True)
                     loss = optimize_bound(branch.weights, branch.biases, gamma, alphas, branch.resulting_lbs, branch.resulting_ubs, num_layers, layeri)  # (dir==2, batch, 1)
                     assert loss.dim() == 3, loss.shape
