@@ -20,9 +20,9 @@ d = torch.Tensor([
         -0.25
     ])
 
-ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL = True
-DONT_OPTIMIZE_LOADED_LAYERS = True
-stack_n_times = 10
+ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL = False
+DONT_OPTIMIZE_LOADED_LAYERS = False
+stack_n_times = 5
 
 init_with_bounds_of_prev_model = ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL and stack_n_times > 1
 model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=stack_n_times)
