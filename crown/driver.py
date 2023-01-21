@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -25,6 +25,8 @@ def _get_initial_input_branch(
     input_lbs,
     input_ubs,
     max_branching_depth: Optional[int],
+    initial_resulting_lbs: Optional[List[Optional[torch.Tensor]]],  # (feat)
+    initial_resulting_ubs: Optional[List[Optional[torch.Tensor]]],  # (feat)
 ):
     (resulting_lbs, resulting_ubs), (cs_lbs, cs_ubs), params_dict, weights, biases = initialize_all(
         model=model,
@@ -33,6 +35,8 @@ def _get_initial_input_branch(
         H=H,
         d=d,
         cs=cs,
+        initial_resulting_lbs=initial_resulting_lbs,
+        initial_resulting_ubs=initial_resulting_ubs,
     )
     initial_input_branch = InputBranch(
         input_lbs=torch.Tensor(input_lbs),
@@ -59,7 +63,10 @@ def optimize(
     max_num_iters,
     convergence_threshold: float,
     max_branching_depth: Optional[int],
-    plotting_level: PlottingLevel
+    plotting_level: PlottingLevel,
+    load_bounds_of_stacked: Optional[int] = None,
+    save_bounds_as_stacked: Optional[int] = None,
+    dont_optimize_loaded_layers: bool = False,
 ):
     plt.ion()
     plt.show()
@@ -73,6 +80,20 @@ def optimize(
     approximated_input_bounds: List[ApproximatedInputBound] = []
     excluded_input_regions: List[ExcludedInputRegions] = []
 
+    num_layers = get_num_layers(model)
+    initial_resulting_lbs: List[Optional[torch.Tensor]] = [None] * num_layers  # (feat)
+    initial_resulting_ubs: List[Optional[torch.Tensor]] = [None] * num_layers  # (feat)
+    optmize_layer: List[bool] = [True] * num_layers
+    if load_bounds_of_stacked is not None:
+        loaded_lbs = np.load(f"resulting_lbs{load_bounds_of_stacked}.npy", allow_pickle=True)
+        loaded_ubs = np.load(f"resulting_ubs{load_bounds_of_stacked}.npy", allow_pickle=True)
+        assert len(loaded_lbs) == len(loaded_ubs)
+        for i in range(1, len(loaded_lbs)):
+            initial_resulting_lbs[-i] = loaded_lbs[-i]
+            initial_resulting_ubs[-i] = loaded_ubs[-i]
+            if dont_optimize_loaded_layers:
+                optmize_layer[-i] = False
+
     branches = [_get_initial_input_branch(
         model=model,
         H=H,
@@ -80,11 +101,15 @@ def optimize(
         cs=cs,
         input_lbs=input_lbs,
         input_ubs=input_ubs,
-        max_branching_depth=max_branching_depth
+        max_branching_depth=max_branching_depth,
+        initial_resulting_lbs=initial_resulting_lbs,
+        initial_resulting_ubs=initial_resulting_ubs,
     )]
 
     plot_number = 0
-    num_layers = get_num_layers(model)
+    root_branch_resulting_lbs = None
+    root_branch_resulting_ubs = None
+
     while True:
         if len(branches) == 0:
             break
@@ -109,6 +134,9 @@ def optimize(
                 if branch_excluded:
                     break
                 for layeri in tqdm(get_layer_indices(model), desc="Layers", leave=False):
+                    if not optmize_layer[layeri]:
+                        continue
+
                     if branch_excluded:
                         break
                     # batch size = features in layer i (+ num_cs in the input layer)
@@ -186,6 +214,11 @@ def optimize(
                 plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=False)
                 plot_number += 1
 
+        if root_branch_resulting_lbs is None:
+            assert root_branch_resulting_ubs is None
+            root_branch_resulting_lbs = deepcopy(branch.resulting_lbs)
+            root_branch_resulting_ubs = deepcopy(branch.resulting_ubs)
+
         if branch_excluded:
             excluded_input_regions.append(ExcludedInputRegions(branch.input_lbs.cpu(), branch.input_ubs.cpu()))
         else:
@@ -195,3 +228,7 @@ def optimize(
     if plotting_level in [PlottingLevel.ALL_STEPS, PlottingLevel.FINAL_ONLY]:
         plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=False)
         input("Press enter to terminate")
+
+    if save_bounds_as_stacked is not None:
+        np.save(f"resulting_lbs{save_bounds_as_stacked}.npy", root_branch_resulting_lbs)
+        np.save(f"resulting_ubs{save_bounds_as_stacked}.npy", root_branch_resulting_ubs)

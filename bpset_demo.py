@@ -20,8 +20,13 @@ d = torch.Tensor([
         -0.25
     ])
 
-model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=5)
-# model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=5)
+ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL = True
+DONT_OPTIMIZE_LOADED_LAYERS = True
+stack_n_times = 10
+
+init_with_bounds_of_prev_model = ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL and stack_n_times > 1
+model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=stack_n_times)
+# model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
 
 num_cs = 20
 # The driver will bound the input based on cs *both* from above and below,
@@ -49,4 +54,7 @@ optimize(
     convergence_threshold=convergence_threshold,
     max_branching_depth=max_branching_depth,
     plotting_level=plotting_level,
+    load_bounds_of_stacked=stack_n_times-1 if init_with_bounds_of_prev_model else None,
+    save_bounds_as_stacked=stack_n_times,
+    dont_optimize_loaded_layers=DONT_OPTIMIZE_LOADED_LAYERS,
 )

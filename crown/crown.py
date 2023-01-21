@@ -67,8 +67,8 @@ def _interval_bounds(
     biases: List[torch.Tensor],  # [(feat)]
     input_lbs: torch.Tensor,  # (featInputLayer)
     input_ubs: torch.Tensor,  # (featInputLayer)
-    initial_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
-    initial_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
+    initial_lbs: Optional[List[Optional[torch.Tensor]]],  # (feat)
+    initial_ubs: Optional[List[Optional[torch.Tensor]]],  # (feat)
 ) -> Tuple[
     List[torch.Tensor],  # (feat)
     List[torch.Tensor],  # (feat)
@@ -78,8 +78,12 @@ def _interval_bounds(
 
     if initial_lbs is not None:
         assert initial_ubs is not None
-        input_lbs = torch.max(input_lbs, initial_lbs[0])
-        input_ubs = torch.min(input_ubs, initial_ubs[0])
+        if initial_lbs[0] is not None:
+            assert initial_ubs[0] is not None
+            input_lbs = torch.max(input_lbs, initial_lbs[0])
+            input_ubs = torch.min(input_ubs, initial_ubs[0])
+        else:
+            assert initial_ubs[0] is None
     else:
         assert initial_ubs is None
 
@@ -92,12 +96,10 @@ def _interval_bounds(
         w = weights[i]
         pre_activation_lbs = torch.where(w > 0, w, 0) @ post_activation_lbs + torch.where(w < 0, w, 0) @ post_activation_ubs + biases[i]
         pre_activation_ubs = torch.where(w > 0, w, 0) @ post_activation_ubs + torch.where(w < 0, w, 0) @ post_activation_lbs + biases[i]
-        if initial_lbs is not None:
-            assert initial_ubs is not None
+        if initial_lbs is not None and initial_lbs[i] is not None:
+            assert initial_ubs is not None and initial_ubs[i] is not None
             pre_activation_lbs = torch.max(pre_activation_lbs, initial_lbs[i])
             pre_activation_ubs = torch.min(pre_activation_ubs, initial_ubs[i])
-        else:
-            assert initial_ubs is None
         lbs.append(pre_activation_lbs)
         ubs.append(pre_activation_ubs)
         post_activation_lbs = pre_activation_lbs.clamp(min=0)
@@ -112,8 +114,8 @@ def initialize_bounds(
     input_lbs: torch.Tensor,  # (featInputLayer)
     input_ubs: torch.Tensor,  # (featInputLayer)
     cs: torch.Tensor,  # (num_cs, featInputLayer)
-    initial_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
-    initial_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
+    initial_lbs: Optional[List[Optional[torch.Tensor]]],  # (feat)
+    initial_ubs: Optional[List[Optional[torch.Tensor]]],  # (feat)
     initial_cs_lbs: Optional[List[torch.Tensor]] = None,  # [(feat)]
     initial_cs_ubs: Optional[List[torch.Tensor]] = None,  # [(feat)]
 ) -> Tuple[
@@ -283,6 +285,8 @@ def initialize_all(
     H: torch.Tensor,  # (numConstr, 1)
     d: torch.Tensor,  # (numConstr)
     cs: torch.Tensor,  # (num_cs, featInputLayer)
+    initial_resulting_lbs: Optional[List[Optional[torch.Tensor]]],  # (feat)
+    initial_resulting_ubs: Optional[List[Optional[torch.Tensor]]],  # (feat)
 ) -> Tuple[
     Tuple[
         List[torch.Tensor],  # [(feat)]
@@ -306,6 +310,8 @@ def initialize_all(
         input_lbs=input_lbs,
         input_ubs=input_ubs,
         cs=cs,
+        initial_lbs=initial_resulting_lbs,
+        initial_ubs=initial_resulting_ubs,
     )
 
     L = get_num_layers(model)
