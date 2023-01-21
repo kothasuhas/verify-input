@@ -105,7 +105,6 @@ def optimize(
             if branch_excluded or branch_converged:
                 break
             pending_approximated_input_bounds = []
-            pbar.set_description(f"Sum of best solutions: {branch.last_b_sum}")
             for inner_iteration in tqdm(range(10), desc="Rounds", leave=False):
                 if branch_excluded:
                     break
