@@ -81,12 +81,16 @@ class InputBranch:
 
 
     def _create_child(self, x_left: bool, y_left: bool):
-        x_input_size = self.input_ubs[0] - self.input_lbs[0]
-        y_input_size = self.input_ubs[1] - self.input_lbs[1]
-        new_x_lbs = self.input_lbs[0] if x_left else self.input_lbs[0] + x_input_size / 2
-        new_x_ubs = self.input_lbs[0] + x_input_size / 2 if x_left else self.input_ubs[0]
-        new_y_lbs = self.input_lbs[1] if y_left else self.input_lbs[1] + y_input_size / 2
-        new_y_ubs = self.input_lbs[1] + y_input_size / 2 if y_left else self.input_ubs[1]
+        input_lbs = self.resulting_lbs[0]
+        input_ubs = self.resulting_ubs[0]
+
+        x_input_size = input_ubs[0] - input_lbs[0]
+        y_input_size = input_ubs[1] - input_lbs[1]
+
+        new_x_lbs = input_lbs[0] if x_left else input_lbs[0] + x_input_size / 2
+        new_x_ubs = input_lbs[0] + x_input_size / 2 if x_left else input_ubs[0]
+        new_y_lbs = input_lbs[1] if y_left else input_lbs[1] + y_input_size / 2
+        new_y_ubs = input_lbs[1] + y_input_size / 2 if y_left else input_ubs[1]
 
         new_input_lbs = torch.Tensor([new_x_lbs, new_y_lbs])
         new_input_ubs = torch.Tensor([new_x_ubs, new_y_ubs])
