@@ -5,7 +5,8 @@ import torch
 from torch import nn
 
 from keras.models import model_from_json
-import numpy as np
+
+from core.models.doubleintegrator_nonres import doubleintegrator_nonres, doubleintegrator_nonres_ulimits
 
 class Flatten(nn.Module):
     def forward(self, x):
@@ -50,6 +51,7 @@ with torch.no_grad():
     policy[1].bias   = keras_layer(1)
     policy[3].weight = keras_layer(2)
     policy[3].bias   = keras_layer(3)
+    # here, we assume no u_limits are used. If they are, this layer will be replaced
     policy[5].weight = torch.nn.Parameter(B.matmul(keras_layer(4)))
     policy[5].bias   = torch.nn.Parameter(B.matmul(keras_layer(5)))
 
@@ -62,65 +64,47 @@ with torch.no_grad():
 torch.save(orig_model.state_dict(), 'doubleintegrator_orig.pt')
 
 if u_limits is not None:
+    network_output_features = 1
+    policy = policy[:-1]  # the last layer already incorporated B
+    layer = nn.Linear(policy[-2].out_features, network_output_features, True)
+    layer.weight = keras_layer(4)
+    layer.bias = keras_layer(5)
+    policy.append(layer)  # now the model outputs u, not Bu
+
     # Last b -= u_min
     policy[-1].bias.data -= u_limits[0]
     # ReLU
     policy.append(nn.ReLU())
     # W = -I, b = u_max - u_min
-    layer = nn.Linear(2, 2, True)
-    layer.weight.data = -torch.eye(2)
+    layer = nn.Linear(network_output_features, network_output_features, True)
+    layer.weight.data = -torch.eye(network_output_features)
     layer.bias.data = torch.Tensor(u_limits[1] - u_limits[0])
     policy.append(layer)
     # ReLU
     policy.append(nn.ReLU())
     # W = -I, b = u_max
-    layer = nn.Linear(2, 2, True)
-    layer.weight.data = -torch.eye(2)
-    layer.bias.data = torch.Tensor(u_limits[1])
+    layer = nn.Linear(network_output_features, network_output_features, True)
+    assert network_output_features == 1
+    layer.weight.data = torch.nn.Parameter(-B)  # u is clipped, so B can be used now
+    layer.bias.data = torch.tensor([u_limits[1]]).matmul(B.T)
     policy.append(layer)
 
 print(policy)
 
 if u_limits is not None:
-    policy_nores = nn.Sequential(
-        Flatten(),
-        nn.Linear(2, 12),
-        nn.ReLU(),
-        nn.Linear(12, 7),
-        nn.ReLU(),
-        nn.Linear(7, 4),
-        nn.ReLU(),
-        nn.Linear(4, 4),
-        nn.ReLU(),
-        nn.Linear(4, 2),
-    )
+    policy_nores = doubleintegrator_nonres_ulimits()
 else:
-    policy_nores = nn.Sequential(
-        Flatten(),
-        nn.Linear(2, 12),
-        nn.ReLU(),
-        nn.Linear(12, 7),
-        nn.ReLU(),
-        nn.Linear(7, 2),
-    )
+    policy_nores = doubleintegrator_nonres()
 
 print(policy_nores)
 
 with torch.no_grad():
-    policy_nores[1].weight = torch.nn.Parameter(torch.zeros(12, 2))
-    policy_nores[1].bias   = torch.nn.Parameter(torch.zeros(12))
-    policy_nores[3].weight = torch.nn.Parameter(torch.zeros(7, 12))
-    policy_nores[3].bias   = torch.nn.Parameter(torch.zeros(7))
-    if u_limits is not None:
-        policy_nores[5].weight = torch.nn.Parameter(torch.zeros(4, 7))
-        policy_nores[5].bias   = torch.nn.Parameter(torch.zeros(4))
-        policy_nores[7].weight = torch.nn.Parameter(torch.zeros(4, 4))
-        policy_nores[7].bias   = torch.nn.Parameter(torch.zeros(4))
-        policy_nores[9].weight = torch.nn.Parameter(torch.zeros(2, 4))
-        policy_nores[9].bias   = torch.nn.Parameter(torch.zeros(2))
-    else:
-        policy_nores[5].weight = torch.nn.Parameter(torch.zeros(2, 7))
-        policy_nores[5].bias   = torch.nn.Parameter(torch.zeros(2))
+    for layer in policy_nores:
+        if not isinstance(layer, nn.Linear):
+            continue
+        else:
+            layer.weight = torch.nn.Parameter(torch.zeros_like(layer.weight))
+            layer.bias = torch.nn.Parameter(torch.zeros_like(layer.bias))
 
     policy_nores[1].weight[:-2] = policy[1].weight
     policy_nores[1].weight[-2:] = torch.nn.Parameter(torch.eye(2))
@@ -152,6 +136,7 @@ with torch.no_grad():
 def forward(x, policy):
     return nn.functional.linear(x, A, bias=None) + policy(x)
 
+print("Ensure the model combining Ax+Bu is equivalent")
 print(forward(torch.Tensor([[1.0, 1.0]]), policy))
 print(policy_nores(torch.Tensor([[1.0, 1.0]])))
 

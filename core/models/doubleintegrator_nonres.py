@@ -33,10 +33,10 @@ def doubleintegrator_nonres_ulimits():
         nn.ReLU(),
         nn.Linear(12, 7),
         nn.ReLU(),
-        nn.Linear(7, 4),
+        nn.Linear(7, 3),
         nn.ReLU(),
-        nn.Linear(4, 4),
+        nn.Linear(3, 3),
         nn.ReLU(),
-        nn.Linear(4, 2)
+        nn.Linear(3, 2),
     )
     return model
