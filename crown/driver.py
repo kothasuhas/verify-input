@@ -1,6 +1,9 @@
+import time
 from typing import List, Optional, Tuple
 
 import warnings
+
+from crown.approx_utils import get_remaining_input_area_mask
 warnings.filterwarnings("ignore")
 
 from copy import deepcopy
@@ -67,6 +70,7 @@ def optimize(
     load_bounds_of_stacked: Optional[int] = None,
     save_bounds_as_stacked: Optional[int] = None,
     dont_optimize_loaded_layers: bool = False,
+    log_overapprox_area_percentage: bool = False,
 ):
     plt.ion()
     plt.show()
@@ -109,6 +113,10 @@ def optimize(
     plot_number = 0
     root_branch_resulting_lbs = None
     root_branch_resulting_ubs = None
+    root_branch_input_lbs = deepcopy(input_lbs)
+    root_branch_input_ubs = deepcopy(input_ubs)
+
+    overapprox_area_percentage: List[Tuple[float, float]] = []  # [(runtime -> percentage)]
 
     while True:
         if len(branches) == 0:
@@ -213,6 +221,17 @@ def optimize(
             if plotting_level == PlottingLevel.ALL_STEPS:
                 plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=False)
                 plot_number += 1
+            if log_overapprox_area_percentage:
+                remaining_input_area = get_remaining_input_area_mask(
+                    min_x_input_value=root_branch_input_lbs[0],
+                    max_x_input_value=root_branch_input_ubs[0],
+                    min_y_input_value=root_branch_input_lbs[1],
+                    max_y_input_value=root_branch_input_ubs[1],
+                    approximated_input_bounds=approximated_input_bounds + pending_approximated_input_bounds,
+                    excluded_input_regions=excluded_input_regions
+                )
+                area_percentage = remaining_input_area.sum() / np.prod(remaining_input_area.shape)
+                overapprox_area_percentage.append((time.time(), area_percentage))
 
         if root_branch_resulting_lbs is None:
             assert root_branch_resulting_ubs is None
@@ -228,10 +247,24 @@ def optimize(
     if plotting_level in [PlottingLevel.ALL_STEPS, PlottingLevel.FINAL_ONLY]:
         plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=False)
         input("Press enter to terminate")
+    if log_overapprox_area_percentage:
+        remaining_input_area = get_remaining_input_area_mask(
+            min_x_input_value=root_branch_input_lbs[0],
+            max_x_input_value=root_branch_input_ubs[0],
+            min_y_input_value=root_branch_input_lbs[1],
+            max_y_input_value=root_branch_input_ubs[1],
+            approximated_input_bounds=approximated_input_bounds,
+            excluded_input_regions=excluded_input_regions
+        )
+        area_percentage = remaining_input_area.sum() / np.prod(remaining_input_area.shape)
+        overapprox_area_percentage.append((time.time(), area_percentage))
 
     if save_bounds_as_stacked is not None:
         np.save(f"resulting_lbs{save_bounds_as_stacked}.npy", root_branch_resulting_lbs)
         np.save(f"resulting_ubs{save_bounds_as_stacked}.npy", root_branch_resulting_ubs)
+
+    if log_overapprox_area_percentage:
+        return overapprox_area_percentage
 
     # Must only be used for the bpset_multistep_overapproxtarget demo
     return branch.cs_lbs, branch.cs_ubs

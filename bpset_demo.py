@@ -1,8 +1,11 @@
+import time
 import torch
 import numpy as np
 from crown.driver import optimize
 from crown.model_utils import load_model
 from crown.plot_utils import PlottingLevel
+
+program_start = time.time()
 
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -41,9 +44,9 @@ input_ubs = [5.0, 5.0]
 max_num_iters = 30
 convergence_threshold = 0.005
 max_branching_depth = 0
-plotting_level = PlottingLevel.ALL_STEPS
+plotting_level = PlottingLevel.NO_PLOTTING
 
-optimize(
+overapprox_area_percentage = optimize(
     model,
     H,
     d,
@@ -57,4 +60,10 @@ optimize(
     load_bounds_of_stacked=stack_n_times-1 if init_with_bounds_of_prev_model else None,
     save_bounds_as_stacked=stack_n_times,
     dont_optimize_loaded_layers=DONT_OPTIMIZE_LOADED_LAYERS,
+    log_overapprox_area_percentage=True,
 )
+
+runtime_based_overapprox_area_percentage = []
+for t, percentage in overapprox_area_percentage:
+    runtime_based_overapprox_area_percentage.append((t - program_start, percentage))
+print(runtime_based_overapprox_area_percentage)
