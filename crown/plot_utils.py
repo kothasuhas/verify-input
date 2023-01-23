@@ -52,8 +52,13 @@ def plot2d(
     model.to(orig_model_location)
     output_constraints = torch.all(H.cpu().matmul(y0.unsqueeze(-1)).squeeze(-1) + d.cpu() <= 0, dim=1)
     target_area = (output_constraints).resize(resolution_y,resolution_x).data.numpy()
-
     plt.contour(XX,YY,target_area, colors="green", levels=[0,1])
+
+    # Uncomment to plot the area specified by H and d
+    # obstacle = np.all(X0.cpu().numpy() @ H.cpu().numpy().T + d.cpu().numpy() <= 0, axis=1)
+    # obstacle.resize(resolution_y,resolution_x)
+    # plt.contour(XX,YY,obstacle, colors="red", levels=[0,1])
+
     if contour:
         id = torch.max(y0[:,0], y0[:,1])
         ZZ = (y0[:,2] - id).resize(resolution_y,resolution_x).data.numpy()

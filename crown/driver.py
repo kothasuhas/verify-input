@@ -232,3 +232,6 @@ def optimize(
     if save_bounds_as_stacked is not None:
         np.save(f"resulting_lbs{save_bounds_as_stacked}.npy", root_branch_resulting_lbs)
         np.save(f"resulting_ubs{save_bounds_as_stacked}.npy", root_branch_resulting_ubs)
+
+    # Must only be used for the bpset_multistep_overapproxtarget demo
+    return branch.cs_lbs, branch.cs_ubs
