@@ -70,6 +70,7 @@ def optimize(
     load_bounds_of_stacked: Optional[int] = None,
     save_bounds_as_stacked: Optional[int] = None,
     dont_optimize_loaded_layers: bool = False,
+    contour = False,
     log_overapprox_area_percentage: bool = False,
 ):
     plt.ion()
@@ -219,7 +220,7 @@ def optimize(
             branch.last_b_sum = b_sum
 
             if plotting_level == PlottingLevel.ALL_STEPS:
-                plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=False)
+                plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=contour)
                 plot_number += 1
             if log_overapprox_area_percentage:
                 remaining_input_area = get_remaining_input_area_mask(
@@ -245,7 +246,7 @@ def optimize(
             if branch.remaining_max_branching_depth is None or branch.remaining_max_branching_depth > 0:
                 branches += branch.split()
     if plotting_level in [PlottingLevel.ALL_STEPS, PlottingLevel.FINAL_ONLY]:
-        plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=False)
+        plot2d(model, H, d, approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, contour=contour)
         input("Press enter to terminate")
     if log_overapprox_area_percentage:
         remaining_input_area = get_remaining_input_area_mask(
@@ -264,6 +265,7 @@ def optimize(
         np.save(f"resulting_ubs{save_bounds_as_stacked}.npy", root_branch_resulting_ubs)
 
     if log_overapprox_area_percentage:
+        print(overapprox_area_percentage)
         return overapprox_area_percentage
 
     # Must only be used for the bpset_multistep_overapproxtarget demo

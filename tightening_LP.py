@@ -21,9 +21,11 @@ class args():
         self.model = "toy"
         self.num_epochs = 1
         self.lr = 0.1
+        self.optimizer = "Adam"
+        self.sched_pct = 0.0
 
 trainer = trainer.Trainer(args())
-trainer.load_model("log/11-02-16:50:02--TEST-3L/weights-last.pt") # 200 200 3
+trainer.load_model("test-weights.pt") # 200 200 3
 weight1 = trainer.model[1].weight.detach().numpy()
 weight2 = trainer.model[3].weight.detach().numpy()
 weight3 = trainer.model[5].weight.detach().numpy()

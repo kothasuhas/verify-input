@@ -8,9 +8,9 @@ if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 p = 0.9
-H = torch.Tensor([[-1, -1, 1], [-1, -1, 1]])
+H = torch.Tensor([[-1, -1, 1]])
 thresh = np.log(p / (1 - p))
-d = torch.Tensor([thresh, thresh])
+d = torch.Tensor([thresh])
 
 model = load_model("toy", "test-weights.pt")
 
@@ -26,8 +26,8 @@ input_ubs = [2.0, 2.0]
 
 max_num_iters = 10
 convergence_threshold = 0.05
-max_branching_depth = 1
-plotting_level = PlottingLevel.ALL_STEPS
+max_branching_depth = 0
+plotting_level = PlottingLevel.FINAL_ONLY
 
 optimize(
     model,
@@ -40,4 +40,6 @@ optimize(
     convergence_threshold=convergence_threshold,
     max_branching_depth=max_branching_depth,
     plotting_level=plotting_level,
+    contour=True,
+    log_overapprox_area_percentage=True
 )

@@ -4,6 +4,8 @@ from crown.driver import optimize
 from crown.model_utils import load_model
 from crown.plot_utils import PlottingLevel
 
+import time
+
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
@@ -24,10 +26,11 @@ ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL = True
 DONT_OPTIMIZE_LOADED_LAYERS = True
 MAXIMAL_T = 10
 
+start = time.time()
 for stack_n_times in range(1, MAXIMAL_T+1):
     init_with_bounds_of_prev_model = ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL and stack_n_times > 1
-    model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=stack_n_times)
-    # model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
+    # model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=stack_n_times)
+    model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
 
     num_cs = 20
     # The driver will bound the input based on cs *both* from above and below,
@@ -42,7 +45,7 @@ for stack_n_times in range(1, MAXIMAL_T+1):
     max_num_iters = 30
     convergence_threshold = 0.005
     max_branching_depth = 0
-    plotting_level = PlottingLevel.NO_PLOTTING
+    plotting_level = PlottingLevel.FINAL_ONLY
 
     optimize(
         model,
@@ -59,3 +62,5 @@ for stack_n_times in range(1, MAXIMAL_T+1):
         save_bounds_as_stacked=stack_n_times,
         dont_optimize_loaded_layers=DONT_OPTIMIZE_LOADED_LAYERS,
     )
+end = time.time()
+print(end-start)
