@@ -33,8 +33,8 @@ def toy_maxy():
         nn.ReLU(),
         nn.Linear(200, 200),
         nn.ReLU(),
-        nn.Linear(200, 5),
+        nn.Linear(200, 6),
         nn.ReLU(),
-        nn.Linear(5, 2)
+        nn.Linear(6, 2)
     )
     return model

@@ -8,11 +8,11 @@ if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 p = 0.9
-H = torch.Tensor([[-1, -1, 1], [-1, -1, 1]])
-thresh = np.log(p / (1 - p))
-d = torch.Tensor([thresh, thresh])
+H = torch.Tensor([[-1, 1]])
+thresh = 0. # np.log(p / (1 - p))
+d = torch.Tensor([thresh])
 
-model = load_model("toy", "test-weights.pt")
+model = load_model("toy_maxy", "test-weights-maxy.pt")
 
 num_cs=20
 # The driver will bound the input based on cs *both* from above and below,
@@ -24,10 +24,10 @@ cs = torch.Tensor(cs)
 input_lbs = [-2.0, -2.0]
 input_ubs = [2.0, 2.0]
 
-max_num_iters = 10
-convergence_threshold = 0.05
+max_num_iters = 2
+convergence_threshold = 0.005
 max_branching_depth = 1
-plotting_level = PlottingLevel.ALL_STEPS
+plotting_level = PlottingLevel.NO_PLOTTING
 
 optimize(
     model,
