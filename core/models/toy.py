@@ -25,3 +25,16 @@ def toy():
         nn.Linear(200, 3)
     )
     return model
+
+def toy_maxy():
+    model = nn.Sequential(
+        Flatten(),
+        nn.Linear(2, 200),
+        nn.ReLU(),
+        nn.Linear(200, 200),
+        nn.ReLU(),
+        nn.Linear(200, 5),
+        nn.ReLU(),
+        nn.Linear(5, 2)
+    )
+    return model

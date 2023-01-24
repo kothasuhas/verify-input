@@ -1,6 +1,6 @@
 from .convnet import convnet
 from .mlp import mlp
-from .toy import toy
+from .toy import toy, toy_maxy
 from .vae import vae
 from .doubleintegrator_nonres import doubleintegrator_nonres, doubleintegrator_nonres_ulimits, doubleintegrator_orig
 from .decoder_mlp import decoder_mlp
