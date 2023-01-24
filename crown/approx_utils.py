@@ -69,7 +69,16 @@ def get_remaining_input_area_mask(
         remaining_input_area[branch_input_area_mask * excluded_halfspace] = 0
 
     for excluded_input_region in excluded_input_regions:
-        branch_input_area_mask = _get_branch_input_area_mask(excluded_input_region.input_lbs, excluded_input_region.input_ubs)
+        branch_input_area_mask = _get_branch_input_area_mask(
+            resolution_x=resolution_x,
+            resolution_y=resolution_y,
+            min_x_input_value=min_x_input_value,
+            max_x_input_value=max_x_input_value,
+            min_y_input_value=min_y_input_value,
+            max_y_input_value=max_y_input_value,
+            input_lbs=excluded_input_region.input_lbs,
+            input_ubs=excluded_input_region.input_ubs
+        )
         remaining_input_area[branch_input_area_mask] = 0
 
     return remaining_input_area
