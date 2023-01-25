@@ -25,7 +25,7 @@ def _get_branch_input_area_mask(
     branch_x_ubs_in_ticks = math.floor((input_ubs[0] - min_x_input_value) * ticks_per_width_x)
     branch_y_lbs_in_ticks = math.ceil((input_lbs[1] - min_y_input_value) * ticks_per_width_y)
     branch_y_ubs_in_ticks = math.floor((input_ubs[1] - min_y_input_value) * ticks_per_width_y)
-    branch_input_area_mask[branch_y_lbs_in_ticks:branch_y_ubs_in_ticks+1, branch_x_lbs_in_ticks:branch_x_ubs_in_ticks+1] = 1
+    branch_input_area_mask[branch_y_lbs_in_ticks:branch_y_ubs_in_ticks, branch_x_lbs_in_ticks:branch_x_ubs_in_ticks] = 1
     return branch_input_area_mask
 
 def get_remaining_input_area_mask(
