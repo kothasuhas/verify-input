@@ -2,6 +2,7 @@ import math
 from typing import List
 import numpy as np
 import torch
+from torch.autograd import Variable
 
 from crown.branch_utils import ApproximatedInputBound, ExcludedInputRegions
 
@@ -82,3 +83,27 @@ def get_remaining_input_area_mask(
         remaining_input_area[branch_input_area_mask] = 0
 
     return remaining_input_area
+
+def get_target_area_mask(
+    min_x_input_value: int,
+    max_x_input_value: int,
+    min_y_input_value: int,
+    max_y_input_value: int,
+    model: torch.nn.Sequential,
+    H,
+    d
+):
+    resolution_x = 1000
+    resolution_y = 1000
+    XX, YY = np.meshgrid(np.linspace(min_x_input_value, max_x_input_value, resolution_x), np.linspace(min_y_input_value, max_y_input_value, resolution_y))
+    X0 = Variable(torch.tensor(np.stack([np.ravel(XX), np.ravel(YY)]).T, device="cpu", dtype=torch.float32))
+    # https://stackoverflow.com/questions/58926054/how-to-get-the-device-type-of-a-pytorch-module-conveniently#comment104116008_58926343
+    orig_model_location = next(model.parameters()).device
+    model.to("cpu")
+    y0 = model(X0)
+    model.to(orig_model_location)
+    output_constraints = torch.all(H.cpu().matmul(y0.unsqueeze(-1)).squeeze(-1) + d.cpu() <= 0, dim=1)
+    target_area = (output_constraints).resize(resolution_y,resolution_x).data.numpy()
+    target_area = (target_area == 1.)
+
+    return target_area

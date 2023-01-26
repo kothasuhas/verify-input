@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple
 
 import warnings
 
-from crown.approx_utils import get_remaining_input_area_mask
+from crown.approx_utils import get_remaining_input_area_mask, get_target_area_mask
 warnings.filterwarnings("ignore")
 
 from copy import deepcopy
@@ -114,6 +114,17 @@ def optimize(
     root_branch_resulting_ubs = None
     root_branch_input_lbs = deepcopy(input_lbs)
     root_branch_input_ubs = deepcopy(input_ubs)
+
+    if log_overapprox_area_percentage:
+        target_area = get_target_area_mask(
+            min_x_input_value=root_branch_input_lbs[0],
+            max_x_input_value=root_branch_input_ubs[0],
+            min_y_input_value=root_branch_input_lbs[1],
+            max_y_input_value=root_branch_input_ubs[1],
+            model=model,
+            H=H,
+            d=d,
+        )
 
     overapprox_area_percentage: List[Tuple[float, float]] = []  # [(runtime -> percentage)]
 
@@ -228,7 +239,11 @@ def optimize(
                     approximated_input_bounds=approximated_input_bounds + pending_approximated_input_bounds,
                     excluded_input_regions=excluded_input_regions
                 )
-                area_percentage = remaining_input_area.sum() / np.prod(remaining_input_area.shape)
+                assert np.all((remaining_input_area == 0) | (remaining_input_area == 1))
+                remaining_input_area = (remaining_input_area == 1)
+                tqdm.write(f"{target_area.sum()=}, {remaining_input_area.sum()=}, error {(~((~target_area) | remaining_input_area)).sum()}")
+                # assert np.all((~target_area) | remaining_input_area), 
+                area_percentage = remaining_input_area.sum() / target_area.sum()
                 overapprox_area_percentage.append((time.time(), area_percentage))
 
         if root_branch_resulting_lbs is None:
@@ -254,7 +269,8 @@ def optimize(
             approximated_input_bounds=approximated_input_bounds,
             excluded_input_regions=excluded_input_regions
         )
-        area_percentage = remaining_input_area.sum() / np.prod(remaining_input_area.shape)
+        area_percentage = remaining_input_area.sum() / target_area.sum()
+        # area_percentage = remaining_input_area.sum() / np.prod(remaining_input_area.shape)
         overapprox_area_percentage.append((time.time(), area_percentage))
 
     if save_bounds_as_stacked is not None:

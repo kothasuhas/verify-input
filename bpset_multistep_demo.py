@@ -24,7 +24,7 @@ ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL = True
 DONT_OPTIMIZE_LOADED_LAYERS = True
 MAXIMAL_T = 10
 
-for stack_n_times in range(1, MAXIMAL_T+1):
+for stack_n_times in range(10, MAXIMAL_T+1):
     init_with_bounds_of_prev_model = ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL and stack_n_times > 1
     model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=stack_n_times)
     # model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
@@ -58,4 +58,5 @@ for stack_n_times in range(1, MAXIMAL_T+1):
         load_bounds_of_stacked=stack_n_times-1 if init_with_bounds_of_prev_model else None,
         save_bounds_as_stacked=stack_n_times,
         dont_optimize_loaded_layers=DONT_OPTIMIZE_LOADED_LAYERS,
+        log_overapprox_area_percentage=True,
     )
