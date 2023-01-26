@@ -204,6 +204,27 @@ def optimize(
                             gamma.data = torch.clamp(gamma.data, min=0)
                             for i in range(1, len(alphas)):
                                 alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                pending_approximated_input_bounds = []
+                for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
+                    pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), c.cpu().numpy(), branch.cs_lbs[i].cpu().numpy()))
+                    pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), -c.cpu().numpy(), -branch.cs_ubs[i].cpu().numpy()))
+                if log_overapprox_area_percentage:
+                    remaining_input_area = get_remaining_input_area_mask(
+                        min_x_input_value=root_branch_input_lbs[0],
+                        max_x_input_value=root_branch_input_ubs[0],
+                        min_y_input_value=root_branch_input_lbs[1],
+                        max_y_input_value=root_branch_input_ubs[1],
+                        approximated_input_bounds=approximated_input_bounds + pending_approximated_input_bounds,
+                        excluded_input_regions=excluded_input_regions
+                    )
+                    assert np.all((remaining_input_area == 0) | (remaining_input_area == 1))
+                    remaining_input_area = (remaining_input_area == 1)
+                    # assert np.all((~target_area) | remaining_input_area), 
+                    area_percentage = remaining_input_area.sum() / target_area.sum()
+                    intermediate_tightness = (branch.resulting_ubs[2] - branch.resulting_lbs[2]).sum()
+                    overapprox_area_percentage.append((time.time(), area_percentage, intermediate_tightness))
+                    tqdm.write(f"{target_area.sum()=}, {remaining_input_area.sum()=}, {intermediate_tightness=}, error {(~((~target_area) | remaining_input_area)).sum()}")
+
             for l, u in zip(branch.resulting_lbs, branch.resulting_ubs):
                 if not torch.all(l <= u):
                     branch_excluded = True
@@ -213,6 +234,7 @@ def optimize(
                 break
                 
             b_sum = 0
+            pending_approximated_input_bounds = []
             for i, c in tqdm(enumerate(cs), desc="cs", leave=False):
                 pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), c.cpu().numpy(), branch.cs_lbs[i].cpu().numpy()))
                 pending_approximated_input_bounds.append(ApproximatedInputBound(branch.input_lbs.cpu(), branch.input_ubs.cpu(), -c.cpu().numpy(), -branch.cs_ubs[i].cpu().numpy()))
@@ -230,21 +252,6 @@ def optimize(
             if plotting_level == PlottingLevel.ALL_STEPS:
                 plot2d(model, H, d, approximated_input_bounds + pending_approximated_input_bounds, excluded_input_regions, input_lbs, input_ubs, plot_number=plot_number, save=True, branch=branch, contour=False)
                 plot_number += 1
-            if log_overapprox_area_percentage:
-                remaining_input_area = get_remaining_input_area_mask(
-                    min_x_input_value=root_branch_input_lbs[0],
-                    max_x_input_value=root_branch_input_ubs[0],
-                    min_y_input_value=root_branch_input_lbs[1],
-                    max_y_input_value=root_branch_input_ubs[1],
-                    approximated_input_bounds=approximated_input_bounds + pending_approximated_input_bounds,
-                    excluded_input_regions=excluded_input_regions
-                )
-                assert np.all((remaining_input_area == 0) | (remaining_input_area == 1))
-                remaining_input_area = (remaining_input_area == 1)
-                tqdm.write(f"{target_area.sum()=}, {remaining_input_area.sum()=}, error {(~((~target_area) | remaining_input_area)).sum()}")
-                # assert np.all((~target_area) | remaining_input_area), 
-                area_percentage = remaining_input_area.sum() / target_area.sum()
-                overapprox_area_percentage.append((time.time(), area_percentage))
 
         if root_branch_resulting_lbs is None:
             assert root_branch_resulting_ubs is None
@@ -271,7 +278,8 @@ def optimize(
         )
         area_percentage = remaining_input_area.sum() / target_area.sum()
         # area_percentage = remaining_input_area.sum() / np.prod(remaining_input_area.shape)
-        overapprox_area_percentage.append((time.time(), area_percentage))
+        intermediate_tightness = (branch.resulting_ubs[2] - branch.resulting_lbs[2]).sum()
+        overapprox_area_percentage.append((time.time(), area_percentage, intermediate_tightness))
 
     if save_bounds_as_stacked is not None:
         np.save(f"resulting_lbs{save_bounds_as_stacked}.npy", root_branch_resulting_lbs)
