@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 import core.trainer as trainer
 
-from crown.lp import plot, get_optimal_grb_model, get_optimized_grb_result
+from crown.lp import get_optimal_grb_model, get_optimized_grb_result
 
 
 def optimal_grb(model: trainer.nn.Sequential, h: torch.Tensor, thresh: float, cs: List[torch.Tensor]):
@@ -21,7 +21,6 @@ def optimal_grb(model: trainer.nn.Sequential, h: torch.Tensor, thresh: float, cs
     return bs
 
 
-
 def main():
     class args():
         def __init__(self):
@@ -32,18 +31,10 @@ def main():
     t = trainer.Trainer(args())
     t.load_model("test-weights.pt") # 200 200 3
 
-    # cs = [torch.randn(2) for _ in range(3)]
-    #cs = []
     cs = [[-0.2326, -1.6094]]
 
-    p = 0.90
-    thresh = np.log(p / (1 - p))
-
-    h = torch.Tensor([[-1], [0], [1]])
-    bs = optimal_grb(t.model, h, thresh, cs)
-
-    plot(t.model, thresh, cs, [bs])
-
-    
+    H = torch.Tensor([[-1., 1.]])
+    d = torch.Tensor([0.0])
+    bs = optimal_grb(t.model, H, d, cs)
 
 main()

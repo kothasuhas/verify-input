@@ -8,8 +8,7 @@ if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 H = torch.Tensor([[-1., 1.]])
-thresh = 0.0
-d = torch.Tensor([thresh])
+d = torch.Tensor([0.0])
 
 model = load_model("toy_maxy", "test-weights-maxy.pt")
 
@@ -26,7 +25,7 @@ input_ubs = [2.0, 2.0]
 max_num_iters = 30
 convergence_threshold = 0.05
 max_branching_depth = 1
-plotting_level = PlottingLevel.NO_PLOTTING
+plotting_level = PlottingLevel.FINAL_ONLY
 
 optimize(
     model,

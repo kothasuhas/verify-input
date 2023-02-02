@@ -7,6 +7,7 @@ from crown.plot_utils import PlottingLevel
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
+# defines the bounding box [4.5, 5.0] x [-0.25, 0.25]
 H = torch.Tensor([
         [1, 0], 
         [-1, 0],
@@ -26,13 +27,11 @@ MAXIMAL_T = 10
 
 for stack_n_times in range(1, MAXIMAL_T+1):
     init_with_bounds_of_prev_model = ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL and stack_n_times > 1
-    model = load_model("doubleintegrator_nonres_ulimits", "doubleintegrator_ulimits1.pt", stack_n_times=stack_n_times)
-    # model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
+    model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
 
     num_cs = 20
     # The driver will bound the input based on cs *both* from above and below,
-    # so we don't want to give symmetrical cs values
-    # Also, we'll get 2*num_cs many lines in our output
+    # so we'll get 2*num_cs many lines and we don't want to give symmetrical cs values
     cs = [[np.cos(2*np.pi*t / (num_cs*2)), np.sin(2*np.pi*t / (num_cs*2))] for t in range(num_cs)]
     cs = torch.Tensor(cs)
 

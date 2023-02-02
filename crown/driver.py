@@ -88,8 +88,8 @@ def optimize(
     initial_resulting_ubs: List[Optional[torch.Tensor]] = [None] * num_layers  # (feat)
     optmize_layer: List[bool] = [True] * num_layers
     if load_bounds_of_stacked is not None:
-        loaded_lbs = np.load(f"resulting_lbs{load_bounds_of_stacked}.npy", allow_pickle=True)
-        loaded_ubs = np.load(f"resulting_ubs{load_bounds_of_stacked}.npy", allow_pickle=True)
+        loaded_lbs = np.load(f"bounds/resulting_lbs{load_bounds_of_stacked}.npy", allow_pickle=True)
+        loaded_ubs = np.load(f"bounds/resulting_ubs{load_bounds_of_stacked}.npy", allow_pickle=True)
         assert len(loaded_lbs) == len(loaded_ubs)
         for i in range(1, len(loaded_lbs)):
             initial_resulting_lbs[-i] = loaded_lbs[-i]
@@ -258,8 +258,8 @@ def optimize(
         overapprox_area_percentage.append((time.time(), area_percentage))
 
     if save_bounds_as_stacked is not None:
-        np.save(f"resulting_lbs{save_bounds_as_stacked}.npy", root_branch_resulting_lbs)
-        np.save(f"resulting_ubs{save_bounds_as_stacked}.npy", root_branch_resulting_ubs)
+        np.save(f"bounds/resulting_lbs{save_bounds_as_stacked}.npy", root_branch_resulting_lbs)
+        np.save(f"bounds/resulting_ubs{save_bounds_as_stacked}.npy", root_branch_resulting_ubs)
 
     if log_overapprox_area_percentage:
         return overapprox_area_percentage

@@ -4,6 +4,8 @@ cifar10_data/*
 mnist_data/*
 plots/*
 !plots/.gitkeep
+bounds/*
+!bounds/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

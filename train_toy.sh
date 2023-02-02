@@ -1,7 +1,7 @@
 python run_toydata.py \
-    --data-dir mnist_data \
+    --data-dir not_needed \
     --log-dir log \
-    --log-desc TEST-3L \
+    --log-desc TEST \
     --batch-size 1 \
     --model toy \
     --num-epochs 200 \

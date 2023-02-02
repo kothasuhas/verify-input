@@ -1,27 +1,21 @@
 import warnings
-
-from crown.approx_utils import get_remaining_input_area_mask
 warnings.filterwarnings("ignore")
 
-from operator import truediv
 import os, shutil, json, datetime, time
 
 import core.parser as parser
 import core.utils as utils
 import core.logger as logger
-import core.data as data
 import core.trainer as trainer
 
 import torch
 import pandas as pd
 import random
 import numpy as np
-import matplotlib.pyplot as plt
 
 args = parser.args
 
 utils.seed(1)
-DATA_DIR = os.path.join(args.data_dir, 'cifar10s')
 LOG_DIR = os.path.join(args.log_dir, datetime.datetime.now().strftime("%m-%d-%H:%M:%S--") + args.log_desc)
 SAVE_BEST_WEIGHTS  = os.path.join(LOG_DIR, 'weights-best.pt')
 SAVE_LAST_WEIGHTS  = os.path.join(LOG_DIR, 'weights-last.pt')
@@ -66,14 +60,6 @@ m3_samples = list(filter(lambda sample: far_all(m1_samples)(sample) and far_all(
 
 x = m1_samples + m2_samples + m3_samples
 
-# for sample in m1_samples:
-#     plt.plot([sample[0][0]], [sample[0][1]], marker="o", markersize=4, color="green")
-# for sample in m2_samples:
-#     plt.plot([sample[0][0]], [sample[0][1]], marker="o", markersize=4, color="red")
-# for sample in m3_samples:
-#     plt.plot([sample[0][0]], [sample[0][1]], marker="o", markersize=4, color="blue")
-# plt.show()
-
 y1 = [torch.LongTensor([0]).unsqueeze(dim=0).reshape(1) for _ in range(len(m1_samples))] 
 y2 = [torch.LongTensor([1]).unsqueeze(dim=0).reshape(1) for _ in range(len(m2_samples))] 
 y_ood = [torch.LongTensor([2]).unsqueeze(dim=0).reshape(1) for _ in range(len(m3_samples))]
@@ -89,11 +75,9 @@ if args.saved_model:
     trainer.load_model(args.saved_model)
 
     logger.log('\n\n')
-    # logger.log('Standard Accuracy-\tTest: {:2f}%.'.format(trainer.eval(test_dataloader)*100))
 else:
     logger.log('\n\n')
     metrics = pd.DataFrame()
-    # logger.log('Standard Accuracy-\tTest: {:2f}%.'.format(trainer.eval(test_dataloader)*100))
 
     trainer.init_optimizer(args.num_epochs)    
 
@@ -105,7 +89,6 @@ else:
         last_lr = trainer.scheduler.get_last_lr()[0]
         
         res = trainer.train(train_dataloader, epoch=epoch)
-        # test_acc = trainer.eval(test_dataloader)
         test_acc = -1.0
         
         logger.log('Loss: {:.4f}.\tLR: {:.4f}'.format(res['loss'], last_lr))
