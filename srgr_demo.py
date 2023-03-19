@@ -39,7 +39,7 @@ for property_num in range(50):
         max_branching_depth = 0
         plotting_level = PlottingLevel.NO_PLOTTING
 
-        optimize(
+        input_not_empty = optimize(
             model,
             H,
             d,
@@ -50,4 +50,11 @@ for property_num in range(50):
             convergence_threshold=convergence_threshold,
             max_branching_depth=max_branching_depth,
             plotting_level=plotting_level,
+            return_success=True,
         )
+        if input_not_empty:
+            break
+    if input_not_empty:
+        print("Not verified")
+    else:
+        print("Verified")

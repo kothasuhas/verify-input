@@ -70,7 +70,13 @@ def optimize(
     save_bounds_as_stacked: Optional[int] = None,
     dont_optimize_loaded_layers: bool = False,
     log_overapprox_area_percentage: bool = False,
+    return_success: bool = False,
 ):
+    if return_success and max_branching_depth > 0:
+        raise NotImplemented("Detection of entirely empty input sets is currently not implemented for branching")
+    if return_success:
+        assert not log_overapprox_area_percentage, "Not supported"
+
     plt.ion()
     plt.show()
 
@@ -189,6 +195,8 @@ def optimize(
                             if torch.any(branch.resulting_lbs[layeri] > branch.resulting_ubs[layeri]):
                                 tqdm.write("[WARNING] Infeasible bounds determined. That's either a bug, or this input region has no intersection with the target area")
                                 branch_excluded = True
+                                if return_success:
+                                    return False
                                 break
                             gamma.data = torch.clamp(gamma.data, min=0)
                             for i in range(1, len(alphas)):
@@ -264,5 +272,8 @@ def optimize(
     if log_overapprox_area_percentage:
         return overapprox_area_percentage
 
-    # Must only be used for the bpset_multistep_overapproxtarget demo
-    return branch.cs_lbs, branch.cs_ubs
+    if return_success:
+        return True
+    else:
+        # Must only be used for the bpset_multistep_overapproxtarget demo
+        return branch.cs_lbs, branch.cs_ubs
