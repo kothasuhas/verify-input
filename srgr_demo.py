@@ -27,11 +27,10 @@ for property_num in range(50):
     cs = torch.Tensor(cs)
 
     for attack_class in range(9):
-        H = torch.Tensor(property_matrix)[:, :-1]
-        H[attack_class] *= -1
+        H = torch.Tensor(property_matrix)[attack_class:attack_class+1, :-1] * -1
 
-        d = torch.Tensor(property_matrix)[:, -1]
-
+        d = torch.Tensor(property_matrix)[attack_class:attack_class+1, -1]
+        assert torch.all(d == 0)
         input_lbs = input_center - radius
         input_ubs = input_center + radius
 
