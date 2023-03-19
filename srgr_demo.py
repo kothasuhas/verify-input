@@ -31,8 +31,8 @@ for property_num in range(50):
 
         d = torch.Tensor(property_matrix)[attack_class:attack_class+1, -1]
         assert torch.all(d == 0)
-        input_lbs = input_center - radius
-        input_ubs = input_center + radius
+        input_lbs = torch.clamp(input_center - radius, min=0.)
+        input_ubs = torch.clamp(input_center + radius, max=1.)
 
         max_num_iters = 5
         convergence_threshold = 0.0
