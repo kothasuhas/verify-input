@@ -92,7 +92,7 @@ def _interval_bounds(
     post_activation_lbs = input_lbs
     post_activation_ubs = input_ubs
     assert len(weights) == num_layers + 1, (len(weights), num_layers)
-    for i in range(1, num_layers):
+    for i in range(1, num_layers+1):
         w = weights[i]
         pre_activation_lbs = torch.where(w > 0, w, 0) @ post_activation_lbs + torch.where(w < 0, w, 0) @ post_activation_ubs + biases[i]
         pre_activation_ubs = torch.where(w > 0, w, 0) @ post_activation_ubs + torch.where(w < 0, w, 0) @ post_activation_lbs + biases[i]
@@ -189,7 +189,7 @@ def tighten_bounds_with_rsip(
         ubs[0] = torch.min(input_ubs, initial_ubs[0])
 
     relaxations = [None]
-    for layeri in range(1, num_layers):
+    for layeri in range(1, num_layers+1):
         num_neurons_layeri = weights[layeri].size(0)
         relation_lbs = torch.eye(num_neurons_layeri, num_neurons_layeri + 1)  # (featLayerI, featLayerI + 1)
         relation_ubs = torch.eye(num_neurons_layeri, num_neurons_layeri + 1)  # (featLayerI, featLayerI + 1)

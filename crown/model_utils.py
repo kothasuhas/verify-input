@@ -52,8 +52,10 @@ def get_num_layers(model: trainer.nn.Sequential):
     return layers
 
 def get_num_neurons(model: trainer.nn.Sequential, layer: int):
+    if layer*2+1 > len(model) - 1:
+        return 1
     return model[layer*2+1].weight.detach().cpu().numpy().shape[1]
 
 def get_layer_indices(model: trainer.nn.Sequential):
     num_layers = get_num_layers(model)
-    return range(num_layers-1, -1, -1)
+    return range(num_layers, -1, -1)

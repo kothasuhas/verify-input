@@ -69,7 +69,7 @@ class InputBranch:
         self.remaining_max_branching_depth = remaining_max_branching_depth
         self.last_b_sum = last_b_sum
         self.optimizers = []
-        for layeri in range(len(self.biases) - 1):
+        for layeri in range(len(self.biases)):
             opti = torch.optim.SGD([
                 {'params': params_dict[layeri]['gamma'], 'lr' : 0.001},
                 {'params': params_dict[layeri]['alphas'][1:]},

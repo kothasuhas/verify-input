@@ -90,9 +90,9 @@ def optimize(
     excluded_input_regions: List[ExcludedInputRegions] = []
 
     num_layers = get_num_layers(model)
-    initial_resulting_lbs: List[Optional[torch.Tensor]] = [None] * num_layers  # (feat)
-    initial_resulting_ubs: List[Optional[torch.Tensor]] = [None] * num_layers  # (feat)
-    optmize_layer: List[bool] = [True] * num_layers
+    initial_resulting_lbs: List[Optional[torch.Tensor]] = [None] * (num_layers+1)  # (feat)
+    initial_resulting_ubs: List[Optional[torch.Tensor]] = [None] * (num_layers+1)  # (feat)
+    optmize_layer: List[bool] = [True] * (num_layers+1)
     if load_bounds_of_stacked is not None:
         loaded_lbs = np.load(f"bounds/resulting_lbs{load_bounds_of_stacked}.npy", allow_pickle=True)
         loaded_ubs = np.load(f"bounds/resulting_ubs{load_bounds_of_stacked}.npy", allow_pickle=True)
@@ -201,6 +201,12 @@ def optimize(
                             gamma.data = torch.clamp(gamma.data, min=0)
                             for i in range(1, len(alphas)):
                                 alphas[i].data = alphas[i].data.clamp(min=0.0, max=1.0)
+                if branch.resulting_lbs[-1] > 0:
+                    tqdm.write("[WARNING] final lbs > 0")
+                    branch_excluded = True
+                    if return_success:
+                        return False
+                    break
             for l, u in zip(branch.resulting_lbs, branch.resulting_ubs):
                 if not torch.all(l <= u):
                     branch_excluded = True
