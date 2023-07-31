@@ -64,7 +64,7 @@ def construct_full_step(keras_model, orig_model, full_step, u_limits, u_lb, u_ub
         # W = -I, b = u_max
         layer = nn.Linear(POLICY_DIM, POLICY_DIM, bias=True)
         layer.weight.data = torch.nn.Parameter(-B)  # u is clipped, so B can be used now
-        layer.bias.data = torch.tensor([u_ub]).matmul(B.T)
+        layer.bias.data = u_ub.matmul(B.T)
         policy_base.append(layer)
 
     with torch.no_grad():
@@ -104,14 +104,14 @@ def construct_full_step(keras_model, orig_model, full_step, u_limits, u_lb, u_ub
     def forward(x, orig_model):
         policy_output = orig_model(x)
         if u_limits:
+            policy_output = torch.clip(policy_output, min=u_lb, max=u_ub) # TODO: generalize to more dims
             return nn.functional.linear(x, A, bias=None) + nn.functional.linear(policy_output, B, bias=None)
         else:
-            policy_output = torch.clip(policy_output, min=u_lb, max=u_ub) # TODO: generalize to more dims
             return nn.functional.linear(x, A, bias=None) + nn.functional.linear(policy_output, B, bias=None)
 
     # Ensure the model combining Ax+Bu is equivalent
-    for a in [1.0, 0.5, 0.0, -0.5, -1.0]:
-        for b in [1.0, 0.5, 0.0, -0.5, -1.0]:
-            assert ((forward(torch.Tensor([[a, b]]), orig_model) - full_step(torch.Tensor([[a, b]]))) < 1e-5).all()
+    for _ in range(100):
+        input_tensor = torch.randn(1, STATE_DIM)
+        assert ((forward(input_tensor, orig_model) - full_step(input_tensor)) < 1e-5).all()
 
     return full_step
