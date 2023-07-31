@@ -1,15 +1,15 @@
 import torch.nn as nn
 
-STATE_DIM = 2
-HIDDEN1_DIM = 10
-HIDDEN2_DIM = 5
-POLICY_DIM = 1
+STATE_DIM = 6
+HIDDEN1_DIM = 32
+HIDDEN2_DIM = 32
+POLICY_DIM = 3
 
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
-def doubleintegrator_orig():
+def quadrotor_orig():
     model = nn.Sequential(
         Flatten(),
         nn.Linear(STATE_DIM, HIDDEN1_DIM),
@@ -20,7 +20,7 @@ def doubleintegrator_orig():
     )
     return model
 
-def doubleintegrator_nonres():
+def quadrotor_nonres():
     model = nn.Sequential(
         Flatten(),
         nn.Linear(STATE_DIM, HIDDEN1_DIM + STATE_DIM),
@@ -31,7 +31,7 @@ def doubleintegrator_nonres():
     )
     return model
 
-def doubleintegrator_nonres_ulimits():
+def quadrotor_nonres_ulimits():
     model = nn.Sequential(
         Flatten(),
         nn.Linear(STATE_DIM, HIDDEN1_DIM + STATE_DIM),

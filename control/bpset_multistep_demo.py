@@ -27,7 +27,7 @@ MAXIMAL_T = 10
 
 for stack_n_times in range(1, MAXIMAL_T+1):
     init_with_bounds_of_prev_model = ALLOW_TO_INIT_WITH_BOUNDS_OF_PREV_MODEL and stack_n_times > 1
-    model = load_model("doubleintegrator_nonres", "doubleintegrator.pt", stack_n_times=stack_n_times)
+    model = load_model("doubleintegrator_nonres", "control/models/doubleintegrator.pt", stack_n_times=stack_n_times)
 
     num_cs = 20
     # The driver will bound the input based on cs *both* from above and below,
