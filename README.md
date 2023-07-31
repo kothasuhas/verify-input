@@ -15,8 +15,8 @@ pip install -r requirements.txt
 ```
 ## Demos
 
-OOD Demo from paper: `python3 ood_demo.py`
+OOD Demo from paper: `python3 -m ood.ood_demo`
 
-Controls Demo from paper: `python3 bpset_multistep_demo.py`
+Controls Demo from paper: `python3 -m control.bpset_multistep_demo`
 
 ## 
