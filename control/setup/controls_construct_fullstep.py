@@ -41,7 +41,6 @@ def construct_full_step(keras_model, orig_model, full_step, u_limits, u_lb, u_ub
         orig_model[3].bias   = _keras_layer(3, keras_model)
         orig_model[5].weight = _keras_layer(4, keras_model)
         orig_model[5].bias   = _keras_layer(5, keras_model)
-    torch.save(orig_model.state_dict(), 'doubleintegrator_orig.pt')
 
     if u_limits:
         policy_base = policy_base[:-1]  # the last layer already incorporated B
@@ -114,4 +113,4 @@ def construct_full_step(keras_model, orig_model, full_step, u_limits, u_lb, u_ub
         input_tensor = torch.randn(1, STATE_DIM)
         assert ((forward(input_tensor, orig_model) - full_step(input_tensor)) < 1e-5).all()
 
-    return full_step
+    return orig_model, full_step

@@ -12,7 +12,7 @@ from core.models.toy import toy, toy_maxy
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-orig_model = load_model("toy", "test-weights.pt")
+orig_model = load_model("toy", "ood/models/test-weights.pt")
 
 policy = toy_maxy()
 
@@ -32,7 +32,7 @@ with torch.no_grad():
     policy[7].weight = torch.nn.Parameter(M2.T)
     policy[7].bias   = torch.nn.Parameter(-torch.Tensor([M, M]))
 
-torch.save(policy.state_dict(), 'test-weights-maxy.pt')
+torch.save(policy.state_dict(), 'ood/models/test-weights-maxy.pt')
 
 print("Ensure the model correctly computes max(y1, y2), y3")
 for _ in range(200):

@@ -10,7 +10,7 @@ if torch.cuda.is_available():
 H = torch.Tensor([[-1., 1.]])
 d = torch.Tensor([0.0])
 
-model = load_model("toy_maxy", "test-weights-maxy.pt")
+model = load_model("toy_maxy", "ood/models/test-weights-maxy.pt")
 
 num_cs=20
 # The driver will bound the input based on cs *both* from above and below,
