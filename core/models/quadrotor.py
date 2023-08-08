@@ -1,8 +1,8 @@
 import torch.nn as nn
 
 STATE_DIM = 6
-HIDDEN1_DIM = 32
-HIDDEN2_DIM = 32
+HIDDEN1_DIM = 20
+HIDDEN2_DIM = 20
 POLICY_DIM = 3
 
 class Flatten(nn.Module):

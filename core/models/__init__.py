@@ -1,5 +1,6 @@
 from .toy import toy, toy_maxy
 from .doubleintegrator_nonres import doubleintegrator_nonres, doubleintegrator_nonres_ulimits, doubleintegrator_orig
+from .quadrotor import quadrotor_nonres, quadrotor_nonres_ulimits, quadrotor_orig
 
 def create_model(name, device):
     """

@@ -1,6 +1,9 @@
 # code to convert a keras controls policy into a torch nonresidual network
 # (no need to run unless you have a new controls policy to test)
 
+# model taken from https://github.com/neu-autonomy/nfl_veripy/tree/release/src/nfl_veripy/_static/models/DiscreteQuadrotor/discrete_quad_avoid_origin_maneuver_2
+# dynamics taken from https://github.com/neu-autonomy/nfl_veripy/blob/release/src/nfl_veripy/dynamics/DiscreteQuadrotor.py
+
 import torch
 
 from keras.models import model_from_json
@@ -10,10 +13,10 @@ from .controls_construct_fullstep import construct_full_step
 
 # assert Flatten, Linear, Relu, Linear, Relu, Linear
 
-u_limits = False
+u_limits = True
 if u_limits:
-    u_lb = torch.Tensor([-8.0, -8.0, -1.8])
-    u_ub = torch.Tensor([8.0, 8.0, 17.8])
+    u_lb = torch.Tensor([-4.0, -4.0, -4.0])
+    u_ub = torch.Tensor([4.0, 4.0, 4.0])
 else:
     u_lb, u_ub = None, None
 
@@ -28,14 +31,27 @@ if u_limits:
 else:
     full_step = quadrotor_nonres()
 
-A = torch.zeros((6, 6))
-A[0][3] = 1
-A[1][4] = 1
-A[2][5] = 1
-B = torch.zeros((6, 3))
-B[3][0] = 1
-B[4][1] = -1
-B[5][2] = 1
+A = torch.Tensor(
+    [
+        [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
+B = torch.Tensor(
+    [
+        [0.5, 0.0, 0.0],
+        [0.0, 0.5, 0.0],
+        [0.0, 0.0, 0.5],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+)
 
 orig_model, full_step = construct_full_step(keras_model, orig_model, full_step, 
                                             u_limits, u_lb, u_ub, 
@@ -43,6 +59,6 @@ orig_model, full_step = construct_full_step(keras_model, orig_model, full_step,
                                             STATE_DIM, HIDDEN1_DIM, HIDDEN2_DIM, POLICY_DIM)
 torch.save(orig_model.state_dict(), 'control/models/quadrotor_orig.pt')
 if u_limits:
-    torch.save(full_step.state_dict(), 'control/models/quadrotor_ulimits_test.pt')
+    torch.save(full_step.state_dict(), 'control/models/quadrotor_ulimits.pt')
 else:
-    torch.save(full_step.state_dict(), 'control/models/quadrotor_test.pt')
+    torch.save(full_step.state_dict(), 'control/models/quadrotor.pt')
