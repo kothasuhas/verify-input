@@ -7,7 +7,8 @@ from crown.plot_utils import PlottingLevel
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-bounding_box = [[-4.75,-3],[-2,2],[2.25,2.75],[-1,1],[-1,1],[-1,1]]
+bounding_box = [[-1,1],[-1,1],[1.5,3.5],[-1,1],[-1,1],[-1,1]]
+# SET GAMMA LEARNING_RATE TO BE 0.0001
 
 # defines the above bounding box
 H = torch.Tensor([
@@ -44,10 +45,14 @@ for stack_n_times in range(1, MAXIMAL_T+1):
     ]
     cs = torch.Tensor(cs)
 
-    input_lbs = [-6, -2, 1.5, -1.0, -1.0, -1.0]
-    input_ubs = [-1, 3, 3.5, 1.0, 1.0, 1.0]
+    # bounds derived from controls, same bounds utilized by quadrotor example
+    # in https://github.com/neu-autonomy/nfl_veripy/blob/release/src/nfl_veripy/_static/example_configs/ojcsys23/quadrotor_hybreach.yaml
+    input_lbs = [lim[0] - 1 for lim in bounding_box[:3]] + [-1.0, -1.0, -1.0]
+    input_ubs = [lim[1] + 1 for lim in bounding_box[:3]] + [1.0, 1.0, 1.0]
 
-    max_num_iters = 1000
+    print(input_lbs, input_ubs)
+
+    max_num_iters = 500
     convergence_threshold = 100.0
     max_branching_depth = 0
     plotting_level = PlottingLevel.NO_PLOTTING
