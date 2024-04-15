@@ -1,11 +1,19 @@
-log/*
-cifar10s/*
-cifar10_data/*
-mnist_data/*
-plots/*
-!plots/.gitkeep
-bounds/*
-!bounds/.gitkeep
+results
+examples/ood/files/modified_ood.onnx
+examples/ood/files/ood.vnnlib.compiled
+examples/double_integrator/files/double_integrator_*.onnx
+examples/double_integrator/files/double_integrator.vnnlib.compiled
+examples/verification/benchmarks/yolo/vnnlib/*.vnnlib.compiled
+examples/verification/out.txt
+
+reproduce_paper/log/*
+reproduce_paper/cifar10s/*
+reproduce_paper/cifar10_data/*
+reproduce_paper/mnist_data/*
+reproduce_paper/plots/*
+!reproduce_paper/plots/.gitkeep
+reproduce_paper/bounds/*
+!reproduce_paper/bounds/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

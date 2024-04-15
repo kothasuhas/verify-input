@@ -20,11 +20,25 @@ INVPROP has been integrated into [auto_LiRPA](https://github.com/Verified-Intell
 
 ## Setup
 
-To use INVPROP, you only need to install [alpha-beta-CROWN](https://github.com/Verified-Intelligence/alpha-beta-CROWN).
-Note: The updated version that includes INVPROP will be published within the next few days. We will remove this note once the update is published.
-Please refer to the alpha-beta-CROWN repository for installation instructions.
+You can run the following code to setup INVPROP. Note that this creates a conda environment. You might want to adapt its name:
 
-## Usage
+```
+CONDA_ENV_NAME="invprop"
+git clone --recursive https://github.com/Verified-Intelligence/alpha-beta-CROWN
+git clone https://github.com/kothasuhas/verify-input invprop
+cd alpha-beta-CROWN
+conda env create -f complete_verifier/environment_pyt111.yaml --name $CONDA_ENV_NAME
+conda activate $CONDA_ENV_NAME
+cd ../invprop
+pip install -r examples/requirements.txt
+```
+
+## Examples
+
+All examples in at `examples/` can be run from their respective directory using `./run.sh`.
+If you modified the location or name of the alpha-beta-CROWN clone in the setup script above, please use `ABCROWN_PATH=/path/to/alpha-beta-CROWN`.
+
+## New Applications
 
 Follow these steps to use INVPROP. Note that this repository contains examples that may help you.
 
@@ -76,21 +90,17 @@ if __name__ == '__main__':
     print(model.net['/18'].upper)
 ```
 
-5. Run this e.g. like `PYTHONPATH=$PYTHONPATH:/path/to/alpha-beta-CROWN/complete_verifier/ python oc.py --config path/to/ood.yaml --onnx_path path/to/ood.onnx --vnnlib_path path/to/ood.vnnlib --apply_output_constraints_to /input /input.3 /18   --optimize_disjuncts_separately --tighten_input_bounds --directly_optimize /18 --oc_lr 0.01`
+5. Run this e.g. like `PYTHONPATH=$PYTHONPATH:/path/to/alpha-beta-CROWN/complete_verifier/ python oc.py --config path/to/ood.yaml --onnx_path path/to/ood.onnx --vnnlib_path path/to/ood.vnnlib --apply_output_constraints_to BoundInput /input /input.3 /18   --optimize_disjuncts_separately --tighten_input_bounds --directly_optimize /18 --oc_lr 0.01`
 
 - `PYTHONPATH=$PYTHONPATH:/path/to/alpha-beta-CROWN/complete_verifier/` (adapt to your path) allows to call abCROWN.
 - `oc.py` is the name of the script created in step 4. It passes all arguments on to abCROWN, so the same set of arguments can be used.
-- `--apply_output_constraints_to /input /input.3 /18` activates output constraints for these three layers. You could also use `--apply_output_constraints_to BoundLinear` to simply apply them to every linear layer. Make sure to list the name of the layer added in step 1.
+- `--apply_output_constraints_to BoundInput /input /input.3 /18` activates output constraints for these layers. You could also use `--apply_output_constraints_to BoundInput BoundLinear` to simply apply them to every linear layer. Make sure to list the name of the layer added in step 1 as well as `BoundInput`, as input bounds should be tightened.
 - `--optimize_disjuncts_separately` must be set if the output constraint is a disjunction.
-- `--tighten_input_bounds` will tighten the input bounds. Output constraints are automatically applied to this layer.
+- `--tighten_input_bounds` will tighten the input bounds.
 - `--directly_optimize /18` must be the name of the layer added in step 1.
 - `--oc_lr 0.01` the learning rate for the gammas introduced in the dualization of the output constraints.
 
 6. Once alpha-beta-CROWN is done, the returned model can be used to access the bounds: `model.net['/18'].lower` This will be of shape ` [num_output_constraints, N+C]`.
-
-## Examples
-
-For examples on how to use alpha-beta-CROWN to reproduce the experiments in our paper, please refer to the `examples` directory.
 
 ## Support
 

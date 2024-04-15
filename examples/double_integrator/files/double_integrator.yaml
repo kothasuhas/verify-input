@@ -1,0 +1,17 @@
+general:
+  complete_verifier: skip
+model:
+  input_shape: [-1, 2]
+solver:
+  batch_size: 4096
+  beta-crown:
+    iteration: 20
+    lr_beta: 0.03
+    enable_opt_interm_bounds: True
+  start_save_best: -1
+bab:
+  branching:
+    candidates: 5
+    reduceop: max
+attack:
+  pgd_order: skip

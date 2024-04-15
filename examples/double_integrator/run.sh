@@ -1,10 +1,21 @@
-python prepare.sh
+rm -rf results
+mkdir results
+
+rm files/double_integrator_*.onnx
+
+python files/prepare.py
+
+if [[ -z "${ABCROWN_PATH}" ]]; then
+	ABCROWN_PATH=../../../alpha-beta-CROWN
+fi
+
+echo "Using alpha-beta-CROWN installation at '$ABCROWN_PATH'. Change path by setting the ABCROWN_PATH environment variable"
 
 # Update the path to alpha-beta-CROWN to match your setup
-PYTHONPATH=$PYTHONPATH:../../../abcrown/complete_verifier/ python oc.py \
-    --config double_integrator.yaml \
-    --vnnlib_path double_integrator.vnnlib \
-    --apply_output_constraints_to BoundLinear \
+PYTHONPATH=$PYTHONPATH:../:$ABCROWN_PATH/complete_verifier/ python files/oc.py \
+    --config files/double_integrator.yaml \
+    --vnnlib_path files/double_integrator.vnnlib \
+    --apply_output_constraints_to BoundInput BoundLinear \
     --tighten_input_bounds \
     --oc_lr 0.05 \
     --init_iteration 100 \

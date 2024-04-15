@@ -1,0 +1,33 @@
+general:
+  complete_verifier: skip
+  return_optimized_model: True
+model:
+  onnx_path: "files/modified_ood.onnx"
+  input_shape: [-1, 2]
+specification:
+  vnnlib_path: "files/ood.vnnlib"
+solver:
+  batch_size: 4096
+  optimize_disjuncts_separately: True
+  early_stop_patience: 1000
+  start_save_best: -1
+  invprop:
+    apply_output_constraints_to: ["BoundInput", "/input", "/input.3", "/21"]
+    tighten_input_bounds: True
+    directly_optimize: ["/21"]
+    oc_lr: 0.01
+    best_of_oc_and_no_oc: True
+  alpha-crown:
+    iteration: 1000
+    lr_decay: 0.99
+    lr_alpha: 0.4
+  beta-crown:
+    iteration: 20
+    lr_beta: 0.03
+    enable_opt_interm_bounds: True
+bab:
+  branching:
+    candidates: 5
+    reduceop: max
+attack:
+  pgd_order: skip
